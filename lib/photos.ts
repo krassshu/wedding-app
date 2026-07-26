@@ -46,7 +46,7 @@ function randomId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function bingoTaskIdOf(name: string) {
+export function bingoTaskIdOf(name: string) {
   if (!name.startsWith(BINGO_PREFIX)) return null;
   const rest = name.slice(BINGO_PREFIX.length);
   const separator = rest.indexOf("__");
