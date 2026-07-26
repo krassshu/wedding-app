@@ -1,0 +1,13 @@
+{
+  "tasks": [
+    { "id": "swiadkowie", "title": "Ze świadkiem / świadkową" },
+    { "id": "para-mloda", "title": "Z Parą Młodą" },
+    { "id": "toast", "title": "Moment wznoszenia toastu" },
+    { "id": "slodkie", "title": "Z kimś, kto je coś słodkiego" },
+    { "id": "parkiet", "title": "Kadr oddający atmosferę zabawy na parkiecie" },
+    { "id": "dj", "title": "DJ w swoim żywiole" },
+    { "id": "pierwszy-taniec", "title": "Uchwyć Parę Młodą w tańcu" },
+    { "id": "selfie-stol", "title": "Selfie z całym swoim stołem" },
+    { "id": "oczepiny", "title": "Szalony kadr z oczepin" }
+  ]
+}

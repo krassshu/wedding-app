@@ -1,19 +1,30 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Great_Vibes, Poppins } from "next/font/google";
 import "./globals.css";
+import BottomNav from "@/app/components/layout/BottomNav";
+import Header from "@/app/components/layout/Header";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+const poppins = Poppins({
+  variable: "--font-poppins",
+  subsets: ["latin", "latin-ext"],
+  weight: ["300", "400", "500", "600"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const greatVibes = Great_Vibes({
+  variable: "--font-great-vibes",
   subsets: ["latin"],
+  weight: ["400"],
 });
 
 export const metadata: Metadata = {
-  title: "Ślub",
+  title: "Wesele Ani i Oskara",
+  description: "Podziel się zdjęciami i filmami z naszego wesela",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#ffffff",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({
@@ -23,10 +34,16 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      lang="pl"
+      className={`${poppins.variable} ${greatVibes.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col bg-background text-foreground">
+        <Header />
+        <div className="flex-1 w-full max-w-2xl mx-auto px-4 pb-28">
+          {children}
+        </div>
+        <BottomNav />
+      </body>
     </html>
   );
 }

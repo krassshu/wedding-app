@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Wedding App
 
-## Getting Started
+Aplikacja weselna: dodawanie zdjęć, bingo zdjęć, galeria z folderami.
+Next.js 16 (App Router) + Supabase Storage.
 
-First, run the development server:
+## Strony
+
+| Ścieżka | Opis |
+| --- | --- |
+| `/` | Opis, „Zrób zdjęcie", „Dodaj zdjęcie z galerii", ostatnie 9 zdjęć |
+| `/bingo` | Siatka zadań z `app/data/bingo.json`, kliknięcie kafelka otwiera aparat |
+| `/galeria` | Foldery: Galeria i Bingo |
+| `/galeria/wszystkie`, `/galeria/bingo` | Zawartość folderu |
+
+## Storage
+
+Jeden bucket `photos`, folder `gallery/`.
+Zdjęcia z bingo mają nazwę `bingo__<idZadania>__<uuid>.<ext>`, dzięki czemu trafiają
+jednocześnie do głównej galerii i do folderu Bingo.
+
+## Uruchomienie lokalne (bez Dockera)
 
 ```bash
+cp .env.example .env.local
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Wymaga działającego Supabase (patrz niżej) pod adresem z `NEXT_PUBLIC_SUPABASE_URL`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Uruchomienie w Dockerze (Debian)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Cały stos: Postgres, PostgREST, Storage API, imgproxy, nginx (gateway) i aplikacja.
+Wszystkie obrazy oparte o Debiana.
 
-## Learn More
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
 
-To learn more about Next.js, take a look at the following resources:
+- aplikacja: http://localhost:3000
+- Supabase gateway: http://localhost:8000
+- Postgres: localhost:5432
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Usługa `storage-init` czeka na migracje Storage API, tworzy publiczny bucket `photos`
+i polityki RLS pozwalające anonimowym gościom czytać i dodawać zdjęcia.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Klucze w `.env.example` są developerskie. Przed wystawieniem na świat wygeneruj własny
+`JWT_SECRET` oraz nowe `ANON_KEY` i `SERVICE_ROLE_KEY`.
 
-## Deploy on Vercel
+## Zadania bingo
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Edytuj `app/data/bingo.json`:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```json
+{ "tasks": [{ "id": "toast", "title": "Moment wznoszenia toastu" }] }
+```
+
+`id` jest używane w nazwach plików, więc nie zmieniaj go po starcie wesela.
