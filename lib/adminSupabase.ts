@@ -9,15 +9,9 @@ import {
   type Photo,
 } from "@/lib/photos";
 
-// Server-only Supabase client using the SERVICE ROLE key. This is the ONLY place
-// with delete rights — it bypasses RLS by design, so anon users still cannot
-// delete (no policy grants it). The key never reaches the browser.
-
-// Storage ops go over the internal docker network (gateway) — fast and private.
 const INTERNAL_URL =
   process.env.SUPABASE_INTERNAL_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-// Public base is what a browser can actually load (for admin thumbnails).
 const PUBLIC_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || INTERNAL_URL;
 
 export function adminConfigured(): boolean {
@@ -38,7 +32,6 @@ export function internalObjectUrl(path: string): string {
   return `${INTERNAL_URL}/storage/v1/object/public/${PHOTOS_BUCKET}/${path}`;
 }
 
-/** Only allow paths inside the gallery folder; block traversal. */
 export function isSafePath(path: unknown): path is string {
   return (
     typeof path === "string" &&

@@ -22,7 +22,6 @@ export async function POST(req: Request) {
   const password = typeof body?.password === "string" ? body.password : "";
 
   if (!checkPassword(password)) {
-    // Small delay to slow brute-forcing.
     await new Promise((r) => setTimeout(r, 400));
     return NextResponse.json({ error: "Nieprawidłowe hasło." }, { status: 401 });
   }

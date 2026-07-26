@@ -6,14 +6,9 @@ import { adminListPhotos, internalObjectUrl, isSafePath } from "@/lib/adminSupab
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Streams a ZIP of the requested objects. Media is already compressed, so we
-// store (no deflate) and pipe each file straight from internal storage into the
-// archive — nothing is buffered whole, so large video sets stay memory-safe.
 function streamZip(paths: string[]): Response {
   const archive = archiver("zip", { store: true });
-  archive.on("error", () => {
-    // Errors surface as a truncated stream; nothing else to do server-side.
-  });
+  archive.on("error", () => {});
 
   void (async () => {
     for (const path of paths) {
@@ -23,9 +18,7 @@ function streamZip(paths: string[]): Response {
           const name = path.replace(/^gallery\//, "");
           archive.append(Readable.fromWeb(res.body as never), { name });
         }
-      } catch {
-        // Skip files that fail to fetch.
-      }
+      } catch {}
     }
     void archive.finalize();
   })();
@@ -40,7 +33,6 @@ function streamZip(paths: string[]): Response {
   });
 }
 
-// GET /api/admin/download?all=1 — native browser download of everything.
 export async function GET(req: Request) {
   if (!(await isAuthed())) return new Response("Brak dostępu", { status: 401 });
   const url = new URL(req.url);
@@ -52,7 +44,6 @@ export async function GET(req: Request) {
   return streamZip(paths);
 }
 
-// POST { paths: string[] } — download the selected files.
 export async function POST(req: Request) {
   if (!(await isAuthed())) return new Response("Brak dostępu", { status: 401 });
   const body = (await req.json().catch(() => null)) as { paths?: unknown } | null;

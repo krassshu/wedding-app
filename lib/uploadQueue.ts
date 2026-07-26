@@ -1,13 +1,3 @@
-// Offline-tolerant upload queue.
-//
-// Every upload goes through here: the File is persisted in IndexedDB first, then
-// we try to send it. If the device is offline (or the request fails), the item
-// stays in the queue and is retried automatically when connectivity returns
-// (the `online` event, a periodic tick, or the next app open). This means a
-// guest can snap photos with no signal and they upload themselves later.
-//
-// Framework-agnostic singleton; React binds to it via UploadQueueProvider.
-
 import { uploadPhoto } from "@/lib/photos";
 
 export type QueueStatus = "pending" | "error";
@@ -26,12 +16,12 @@ export type QueueSnapshot = {
   items: QueueItem[];
   online: boolean;
   flushing: boolean;
-  completedAt: number; // bumps after each successful upload (for gallery refresh)
+  completedAt: number;
 };
 
 const DB_NAME = "wedding-uploads";
 const STORE = "pending";
-const MAX_ATTEMPTS = 5; // give up auto-retrying while online after this many tries
+const MAX_ATTEMPTS = 5;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 let items: QueueItem[] = [];
@@ -111,10 +101,9 @@ function randomId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** A failed fetch (offline / DNS / connection reset) vs. a real API rejection. */
 function looksLikeNetworkError(err: unknown): boolean {
   if (!isBrowser() || !navigator.onLine) return true;
-  if (err instanceof TypeError) return true; // fetch() network failures throw TypeError
+  if (err instanceof TypeError) return true;
   const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
   return (
     msg.includes("failed to fetch") ||
@@ -168,7 +157,6 @@ export async function flush(): Promise<void> {
       items = items.map((it) => (it.id === item.id ? next : it));
       await idbPut(next);
       emit();
-      // Stop the batch on a network failure — connectivity is gone; retry later.
       if (networkError) break;
     }
   }
@@ -177,7 +165,6 @@ export async function flush(): Promise<void> {
   emit();
 }
 
-/** Reset a failed item and try again now. */
 export async function retry(id: string): Promise<void> {
   const item = items.find((it) => it.id === id);
   if (!item) return;
@@ -202,7 +189,6 @@ export function subscribe(cb: (snap: QueueSnapshot) => void): () => void {
   return () => listeners.delete(cb);
 }
 
-/** Called once from the client provider: load persisted items + wire listeners. */
 export async function initQueue(): Promise<void> {
   if (!isBrowser() || initialized) return;
   initialized = true;
@@ -219,7 +205,7 @@ export async function initQueue(): Promise<void> {
     void flush();
   });
   window.addEventListener("offline", () => emit());
-  // Periodic retry while anything is waiting and we're online.
+
   window.setInterval(() => {
     if (navigator.onLine && items.some((it) => it.status === "pending")) void flush();
   }, 15000);

@@ -135,7 +135,6 @@ export default function AdminPanel() {
         </button>
       </div>
 
-      {/* Actions */}
       <div className="sticky top-0 z-10 -mx-4 flex flex-wrap items-center gap-2 border-b border-line bg-background/95 px-4 py-2 backdrop-blur">
         <button
           type="button"

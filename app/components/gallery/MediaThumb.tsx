@@ -11,9 +11,6 @@ type MediaThumbProps = {
   sizes?: string;
 };
 
-// Lazy thumbnail with a shimmer placeholder that fades the media in on load.
-// Images use next/image (lazy by default); videos render a muted <video> that
-// shows the first frame, with a play badge.
 export default function MediaThumb({
   photo,
   priority = false,

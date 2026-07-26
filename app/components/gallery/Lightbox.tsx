@@ -19,8 +19,6 @@ type LightboxProps = {
 
 const ZOOM = 2.5;
 
-// Full-screen viewer: tap an image to zoom (then drag to pan), swipe or use the
-// arrows/keyboard to move between items. Videos play with native controls.
 export default function Lightbox({
   photos,
   index,
@@ -54,7 +52,6 @@ export default function Lightbox({
     [photos.length, onIndexChange, reset],
   );
 
-  // Lock body scroll while open.
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -63,7 +60,6 @@ export default function Lightbox({
     };
   }, []);
 
-  // Keyboard controls.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -127,7 +123,6 @@ export default function Lightbox({
 
   return (
     <div className="fixed inset-0 z-[70] flex flex-col bg-black/95">
-      {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 text-white">
         <span className="text-sm tabular-nums text-white/70">
           {index + 1} / {photos.length}
@@ -137,9 +132,7 @@ export default function Lightbox({
         </button>
       </div>
 
-      {/* Media */}
       <div ref={containerRef} className="relative flex-1 select-none overflow-hidden">
-        {/* Backdrop tap closes (only when not zoomed) */}
         {!zoomed ? (
           <button
             type="button"
@@ -188,7 +181,6 @@ export default function Lightbox({
           </div>
         ) : null}
 
-        {/* Prev / next */}
         {!zoomed && canPrev ? (
           <button
             type="button"

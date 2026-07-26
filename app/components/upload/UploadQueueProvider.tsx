@@ -21,7 +21,6 @@ type UploadQueueValue = {
   errored: number;
   online: boolean;
   flushing: boolean;
-  /** Bumps after each successful upload — use as a refresh key for galleries. */
   completedAt: number;
   add: (file: File, bingoTaskId?: string) => Promise<void>;
   retryAll: () => void;

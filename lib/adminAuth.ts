@@ -2,12 +2,8 @@ import "server-only";
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
 
-// Lightweight single-admin auth (no Supabase Auth): a shared password grants an
-// HMAC-signed, HttpOnly session cookie. Privileged storage operations run
-// server-side with the service role, so RLS stays untouched.
-
 export const ADMIN_COOKIE = "wedding_admin";
-export const ADMIN_COOKIE_MAX_AGE = 60 * 60 * 12; // 12 hours
+export const ADMIN_COOKIE_MAX_AGE = 60 * 60 * 12;
 
 function sessionSecret(): string {
   return process.env.ADMIN_SESSION_SECRET ?? "";
@@ -53,7 +49,6 @@ function verifySessionToken(token: string | undefined): boolean {
   return Number.isFinite(exp) && exp > Date.now();
 }
 
-/** Read the request cookie and verify the admin session. */
 export async function isAuthed(): Promise<boolean> {
   const store = await cookies();
   return verifySessionToken(store.get(ADMIN_COOKIE)?.value);

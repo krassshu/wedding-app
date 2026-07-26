@@ -3,8 +3,6 @@
 import { CloudOff, Loader2, RefreshCw, UploadCloud } from "lucide-react";
 import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
 
-// Fixed status pill above the bottom nav. Only visible while uploads are waiting,
-// in flight, or failed. Reassures guests that photos taken offline are safe.
 export default function PendingUploads() {
   const { pending, errored, online, flushing, retryAll } = useUploadQueue();
 

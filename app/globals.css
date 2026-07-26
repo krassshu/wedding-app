@@ -30,7 +30,6 @@ body {
   font-family: var(--font-poppins), Arial, Helvetica, sans-serif;
 }
 
-/* Smooth "shimmer" placeholder for media that hasn't loaded yet. */
 @keyframes shimmer {
   100% {
     transform: translateX(100%);
@@ -63,7 +62,6 @@ body {
   }
 }
 
-/* Fade media in once it has decoded. */
 .media-fade {
   opacity: 0;
   transition: opacity 300ms ease;

@@ -1,6 +1,3 @@
-// Shimmer placeholders shown instantly while a gallery grid loads or a route
-// transitions — the page shell appears immediately, no waiting on images.
-
 export function PhotoGridSkeleton({ count = 9 }: { count?: number }) {
   return (
     <div className="grid grid-cols-3 gap-2">
