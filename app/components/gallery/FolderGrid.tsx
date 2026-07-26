@@ -2,9 +2,12 @@
 
 import { useEffect, useState } from "react";
 import FolderCard from "@/app/components/cards/FolderCard";
+import { FolderGridSkeleton } from "@/app/components/gallery/GallerySkeleton";
+import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
 import { listPhotos, type Photo } from "@/lib/photos";
 
 export default function FolderGrid() {
+  const { completedAt } = useUploadQueue();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -25,21 +28,12 @@ export default function FolderGrid() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [completedAt]);
 
   const bingoPhotos = photos.filter((photo) => photo.bingoTaskId !== null);
 
   if (loading) {
-    return (
-      <div className="grid grid-cols-2 gap-3">
-        {Array.from({ length: 2 }).map((_, index) => (
-          <div
-            key={index}
-            className="aspect-square animate-pulse rounded-lg bg-black/5"
-          />
-        ))}
-      </div>
-    );
+    return <FolderGridSkeleton />;
   }
 
   return (

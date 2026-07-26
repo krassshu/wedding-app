@@ -4,6 +4,8 @@ import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import PhotoGrid from "@/app/components/gallery/PhotoGrid";
+import { PhotoGridSkeleton } from "@/app/components/gallery/GallerySkeleton";
+import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
 import SectionTitle from "@/app/components/ui/SectionTitle";
 import { listBingoPhotos, listPhotos, type Photo } from "@/lib/photos";
 
@@ -18,6 +20,7 @@ export default function FolderPhotos({
   title,
   subtitle,
 }: FolderPhotosProps) {
+  const { completedAt } = useUploadQueue();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -39,7 +42,7 @@ export default function FolderPhotos({
     return () => {
       active = false;
     };
-  }, [slug]);
+  }, [slug, completedAt]);
 
   return (
     <div className="flex flex-col gap-4 pt-2">
@@ -53,18 +56,7 @@ export default function FolderPhotos({
 
       <SectionTitle title={title} subtitle={subtitle} />
 
-      {loading ? (
-        <div className="grid grid-cols-3 gap-2">
-          {Array.from({ length: 9 }).map((_, index) => (
-            <div
-              key={index}
-              className="aspect-[3/4] animate-pulse rounded-md bg-black/5"
-            />
-          ))}
-        </div>
-      ) : (
-        <PhotoGrid photos={photos} />
-      )}
+      {loading ? <PhotoGridSkeleton count={12} /> : <PhotoGrid photos={photos} />}
     </div>
   );
 }

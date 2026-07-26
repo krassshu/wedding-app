@@ -29,3 +29,46 @@ body {
 body {
   font-family: var(--font-poppins), Arial, Helvetica, sans-serif;
 }
+
+/* Smooth "shimmer" placeholder for media that hasn't loaded yet. */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.shimmer {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--foreground) 8%, transparent),
+    transparent
+  );
+  animation: shimmer 1.4s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer::after {
+    animation: none;
+  }
+}
+
+/* Fade media in once it has decoded. */
+.media-fade {
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+
+.media-fade[data-loaded="true"] {
+  opacity: 1;
+}

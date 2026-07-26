@@ -4,8 +4,8 @@ import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import CameraButton from "@/app/components/buttons/CameraButton";
 import GalleryButton from "@/app/components/buttons/GalleryButton";
+import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
 import type { BingoTask } from "@/app/types/bingo";
-import { uploadPhoto } from "@/lib/photos";
 
 type BingoModalProps = {
   task: BingoTask | null;
@@ -18,6 +18,7 @@ export default function BingoModal({
   onClose,
   onUploaded,
 }: BingoModalProps) {
+  const { add } = useUploadQueue();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,11 +40,11 @@ export default function BingoModal({
     setError(null);
 
     try {
-      await uploadPhoto(file, task.id);
+      await add(file, task.id);
       onUploaded(task);
       onClose();
     } catch {
-      setError("Nie udało się wysłać zdjęcia. Spróbuj ponownie.");
+      setError("Nie udało się dodać zdjęcia. Spróbuj ponownie.");
     } finally {
       setUploading(false);
     }

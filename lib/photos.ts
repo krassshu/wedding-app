@@ -4,13 +4,33 @@ export const PHOTOS_BUCKET = "photos";
 export const PHOTOS_FOLDER = "gallery";
 export const BINGO_PREFIX = "bingo__";
 
+export type MediaKind = "image" | "video";
+
 export type Photo = {
   name: string;
   path: string;
   url: string;
   createdAt: string;
   bingoTaskId: string | null;
+  kind: MediaKind;
 };
+
+const VIDEO_EXTENSIONS = new Set([
+  "mp4",
+  "mov",
+  "m4v",
+  "webm",
+  "ogv",
+  "avi",
+  "mkv",
+  "3gp",
+  "quicktime",
+]);
+
+export function mediaKind(name: string): MediaKind {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return VIDEO_EXTENSIONS.has(ext) ? "video" : "image";
+}
 
 function extensionOf(file: File) {
   const fromName = file.name.split(".").pop();
@@ -83,6 +103,7 @@ export async function listPhotos(limit = 100): Promise<Photo[]> {
         url: publicUrl(path),
         createdAt: item.created_at ?? "",
         bingoTaskId: bingoTaskIdOf(item.name),
+        kind: mediaKind(item.name),
       };
     });
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import BingoModal from "@/app/components/bingo/BingoModal";
 import BingoTitle from "@/app/components/cards/BingoTitle";
+import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
 import bingoData from "@/app/data/bingo.json";
 import type { BingoData, BingoTask } from "@/app/types/bingo";
 import { listBingoPhotos } from "@/lib/photos";
@@ -10,6 +11,7 @@ import { listBingoPhotos } from "@/lib/photos";
 const { tasks } = bingoData as BingoData;
 
 export default function BingoGrid() {
+  const { completedAt } = useUploadQueue();
   const [activeTask, setActiveTask] = useState<BingoTask | null>(null);
   const [doneIds, setDoneIds] = useState<string[]>([]);
 
@@ -32,7 +34,7 @@ export default function BingoGrid() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [completedAt]);
 
   return (
     <>

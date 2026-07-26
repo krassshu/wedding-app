@@ -4,24 +4,21 @@ import { useState } from "react";
 import CameraButton from "@/app/components/buttons/CameraButton";
 import GalleryButton from "@/app/components/buttons/GalleryButton";
 import LastPhotos from "@/app/components/gallery/LastPhotos";
-import { uploadPhoto } from "@/lib/photos";
+import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
 
 export default function Home() {
-  const [uploading, setUploading] = useState(false);
+  const { add } = useUploadQueue();
+  const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState(0);
 
   async function handleFile(file: File) {
-    setUploading(true);
     setError(null);
-
     try {
-      await uploadPhoto(file);
-      setRefreshToken((token) => token + 1);
+      await add(file);
+      setNote("Dodano do wysyłki ❤️");
+      window.setTimeout(() => setNote(null), 2500);
     } catch {
-      setError("Nie udało się wysłać pliku. Spróbuj ponownie.");
-    } finally {
-      setUploading(false);
+      setError("Nie udało się dodać pliku. Spróbuj ponownie.");
     }
   }
 
@@ -33,12 +30,12 @@ export default function Home() {
       </p>
 
       <div className="flex flex-col gap-3">
-        <CameraButton onSelect={handleFile} disabled={uploading} />
-        <GalleryButton onSelect={handleFile} disabled={uploading} />
+        <CameraButton onSelect={handleFile} />
+        <GalleryButton onSelect={handleFile} />
       </div>
 
-      {uploading ? (
-        <p className="text-center text-sm text-muted">Wysyłanie…</p>
+      {note ? (
+        <p className="text-center text-sm text-plum">{note}</p>
       ) : null}
 
       {error ? (
@@ -47,7 +44,7 @@ export default function Home() {
 
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium text-muted">Ostatnio dodane</h2>
-        <LastPhotos refreshToken={refreshToken} count={9} />
+        <LastPhotos count={9} />
       </section>
     </div>
   );

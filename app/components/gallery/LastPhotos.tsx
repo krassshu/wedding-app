@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import PhotoGrid from "@/app/components/gallery/PhotoGrid";
+import { PhotoGridSkeleton } from "@/app/components/gallery/GallerySkeleton";
+import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
 import { listLatestPhotos, type Photo } from "@/lib/photos";
 
 type LastPhotosProps = {
@@ -13,6 +15,7 @@ export default function LastPhotos({
   refreshToken = 0,
   count = 9,
 }: LastPhotosProps) {
+  const { completedAt } = useUploadQueue();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,19 +40,10 @@ export default function LastPhotos({
     return () => {
       active = false;
     };
-  }, [refreshToken, count]);
+  }, [refreshToken, count, completedAt]);
 
   if (loading && photos.length === 0) {
-    return (
-      <div className="grid grid-cols-3 gap-2">
-        {Array.from({ length: count }).map((_, index) => (
-          <div
-            key={index}
-            className="aspect-[3/4] animate-pulse rounded-md bg-black/5"
-          />
-        ))}
-      </div>
-    );
+    return <PhotoGridSkeleton count={count} />;
   }
 
   if (error) {

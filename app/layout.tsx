@@ -3,6 +3,8 @@ import { Great_Vibes, Poppins } from "next/font/google";
 import "./globals.css";
 import BottomNav from "@/app/components/layout/BottomNav";
 import Header from "@/app/components/layout/Header";
+import PendingUploads from "@/app/components/upload/PendingUploads";
+import UploadQueueProvider from "@/app/components/upload/UploadQueueProvider";
 
 const poppins = Poppins({
   variable: "--font-poppins",
@@ -38,11 +40,14 @@ export default function RootLayout({
       className={`${poppins.variable} ${greatVibes.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <Header />
-        <div className="flex-1 w-full max-w-2xl mx-auto px-4 pb-28">
-          {children}
-        </div>
-        <BottomNav />
+        <UploadQueueProvider>
+          <Header />
+          <div className="flex-1 w-full max-w-2xl mx-auto px-4 pb-28">
+            {children}
+          </div>
+          <PendingUploads />
+          <BottomNav />
+        </UploadQueueProvider>
       </body>
     </html>
   );
