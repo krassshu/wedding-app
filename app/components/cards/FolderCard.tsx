@@ -1,6 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
 
+function photoPlural(count: number) {
+  if (count === 1) return "zdjęcie";
+  const rest = count % 10;
+  const teens = count % 100;
+  if (rest >= 2 && rest <= 4 && (teens < 12 || teens > 14)) return "zdjęcia";
+  return "zdjęć";
+}
+
 type FolderCardProps = {
   href: string;
   title: string;
@@ -33,7 +41,7 @@ export default function FolderCard({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/25 px-3 text-center">
           <span className="text-base font-medium text-white">{title}</span>
           <span className="text-xs text-white/80">
-            {count} {count === 1 ? "zdjęcie" : "zdjęć"}
+            {count} {photoPlural(count)}
           </span>
         </div>
       </div>

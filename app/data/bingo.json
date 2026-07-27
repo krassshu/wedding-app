@@ -8,6 +8,25 @@
     { "id": "dj", "title": "DJ w swoim żywiole" },
     { "id": "pierwszy-taniec", "title": "Uchwyć Parę Młodą w tańcu" },
     { "id": "selfie-stol", "title": "Selfie z całym swoim stołem" },
-    { "id": "oczepiny", "title": "Szalony kadr z oczepin" }
+    { "id": "oczepiny", "title": "Szalony kadr z oczepin" },
+    { "id": "rodzice", "title": "Z rodzicami Pary Młodej" },
+    { "id": "tort", "title": "Krojenie tortu" },
+    { "id": "bukiet", "title": "Rzut bukietem" },
+    { "id": "obraczki", "title": "Zbliżenie na obrączki" },
+    { "id": "buty-zdjete", "title": "Ktoś, kto już zdjął buty" },
+    { "id": "najstarszy-gosc", "title": "Z najstarszym gościem na sali" },
+    { "id": "najmlodszy-gosc", "title": "Z najmłodszym gościem na sali" },
+    { "id": "smiech", "title": "Ktoś zaśmiewający się do łez" },
+    { "id": "krawat", "title": "Poluzowany krawat lub muszka" },
+    { "id": "grupowe", "title": "Grupowe zdjęcie minimum pięciu osób" },
+    { "id": "suknia", "title": "Detal sukni albo garnituru" },
+    { "id": "dekoracje", "title": "Najładniejsza dekoracja na sali" },
+    { "id": "kelner", "title": "Obsługa wesela w akcji" },
+    { "id": "wolny-taniec", "title": "Para tańcząca wolny taniec" },
+    { "id": "poprawiny", "title": "Ktoś, kto zapowiada, że zostaje do rana" },
+    { "id": "balkon", "title": "Kadr zrobiony na zewnątrz sali" },
+    { "id": "kieliszki", "title": "Wieża albo rządek kieliszków" },
+    { "id": "taniec-z-para", "title": "Zatańcz z Panną Młodą lub Panem Młodym" },
+    { "id": "zyczenia", "title": "Moment składania życzeń" }
   ]
 }

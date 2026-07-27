@@ -1,8 +1,7 @@
 "use client";
 
 import { Camera } from "lucide-react";
-import { useRef, useState } from "react";
-import CameraView from "@/app/components/camera/CameraView";
+import { useRef } from "react";
 import Button from "@/app/components/ui/Button";
 
 type CameraButtonProps = {
@@ -19,32 +18,17 @@ export default function CameraButton({
   disabled = false,
 }: CameraButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
 
   return (
     <>
       <Button
         variant={variant}
         icon={<Camera size={20} strokeWidth={1.8} />}
-        onClick={() => setOpen(true)}
+        onClick={() => inputRef.current?.click()}
         disabled={disabled}
       >
         {label}
       </Button>
-
-      {open ? (
-        <CameraView
-          onClose={() => setOpen(false)}
-          onCapture={(file) => {
-            setOpen(false);
-            onSelect(file);
-          }}
-          onUnavailable={() => {
-            setOpen(false);
-            inputRef.current?.click();
-          }}
-        />
-      ) : null}
 
       <input
         ref={inputRef}

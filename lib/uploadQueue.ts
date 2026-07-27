@@ -17,17 +17,30 @@ export type QueueSnapshot = {
   online: boolean;
   flushing: boolean;
   completedAt: number;
+  uploadingId: string | null;
+  progress: number;
 };
 
 const DB_NAME = "wedding-uploads";
 const STORE = "pending";
 const MAX_ATTEMPTS = 5;
 
+export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+export class FileTooLargeError extends Error {
+  constructor() {
+    super("Plik jest za duży — maksymalnie 100 MB");
+    this.name = "FileTooLargeError";
+  }
+}
+
 let dbPromise: Promise<IDBDatabase> | null = null;
 let items: QueueItem[] = [];
 let flushing = false;
 let completedAt = 0;
 let initialized = false;
+let uploadingId: string | null = null;
+let progress = 0;
 const listeners = new Set<(snap: QueueSnapshot) => void>();
 
 function isBrowser() {
@@ -86,6 +99,8 @@ function snapshot(): QueueSnapshot {
     online: isBrowser() ? navigator.onLine : true,
     flushing,
     completedAt,
+    uploadingId,
+    progress,
   };
 }
 
@@ -114,6 +129,8 @@ function looksLikeNetworkError(err: unknown): boolean {
 }
 
 export async function addToQueue(file: File, bingoTaskId?: string): Promise<void> {
+  if (file.size > MAX_UPLOAD_BYTES) throw new FileTooLargeError();
+
   const item: QueueItem = {
     id: randomId(),
     file,
@@ -139,8 +156,16 @@ export async function flush(): Promise<void> {
   emit();
 
   for (const item of ready) {
+    uploadingId = item.id;
+    progress = 0;
+    emit();
+
     try {
-      await uploadPhoto(item.file, item.bingoTaskId);
+      await uploadPhoto(item.file, item.bingoTaskId, (fraction) => {
+        if (fraction - progress < 0.02 && fraction < 1) return;
+        progress = fraction;
+        emit();
+      });
       items = items.filter((it) => it.id !== item.id);
       await idbDelete(item.id);
       completedAt = Date.now();
@@ -161,6 +186,8 @@ export async function flush(): Promise<void> {
     }
   }
 
+  uploadingId = null;
+  progress = 0;
   flushing = false;
   emit();
 }

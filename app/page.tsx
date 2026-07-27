@@ -5,6 +5,7 @@ import CameraButton from "@/app/components/buttons/CameraButton";
 import GalleryButton from "@/app/components/buttons/GalleryButton";
 import LastPhotos from "@/app/components/gallery/LastPhotos";
 import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
+import { FileTooLargeError } from "@/lib/uploadQueue";
 
 export default function Home() {
   const { add } = useUploadQueue();
@@ -17,8 +18,12 @@ export default function Home() {
       await add(file);
       setNote("Dodano do wysyłki ❤️");
       window.setTimeout(() => setNote(null), 2500);
-    } catch {
-      setError("Nie udało się dodać pliku. Spróbuj ponownie.");
+    } catch (err) {
+      setError(
+        err instanceof FileTooLargeError
+          ? err.message
+          : "Nie udało się dodać pliku. Spróbuj ponownie.",
+      );
     }
   }
 

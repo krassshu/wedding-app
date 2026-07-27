@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -15,15 +15,18 @@ type LightboxProps = {
   index: number;
   onIndexChange: (index: number) => void;
   onClose: () => void;
+  onNeedMore?: () => void;
 };
 
 const ZOOM = 2.5;
+const PREFETCH_MARGIN = 3;
 
 export default function Lightbox({
   photos,
   index,
   onIndexChange,
   onClose,
+  onNeedMore,
 }: LightboxProps) {
   const photo = photos[index];
   const containerRef = useRef<HTMLDivElement>(null);
@@ -35,12 +38,14 @@ export default function Lightbox({
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [fullSize, setFullSize] = useState(false);
 
   const reset = useCallback(() => {
     setScale(1);
     setOffset({ x: 0, y: 0 });
     setDragX(0);
     setLoaded(false);
+    setFullSize(false);
   }, []);
 
   const go = useCallback(
@@ -59,6 +64,29 @@ export default function Lightbox({
       document.body.style.overflow = prev;
     };
   }, []);
+
+  useEffect(() => {
+    for (const neighbour of [photos[index + 1], photos[index - 1]]) {
+      if (!neighbour || neighbour.kind !== "image") continue;
+      const preloader = new window.Image();
+      preloader.src = neighbour.previewUrl;
+    }
+  }, [index, photos]);
+
+  useEffect(() => {
+    if (onNeedMore && index >= photos.length - PREFETCH_MARGIN) onNeedMore();
+  }, [index, photos.length, onNeedMore]);
+
+  useEffect(() => {
+    const current = photos[index];
+    if (scale === 1 || fullSize || !current || current.kind !== "image") return;
+    const original = new window.Image();
+    original.onload = () => setFullSize(true);
+    original.src = current.url;
+    return () => {
+      original.onload = null;
+    };
+  }, [scale, fullSize, index, photos]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -124,6 +152,14 @@ export default function Lightbox({
   return (
     <div className="fixed inset-0 z-[70] flex flex-col bg-black/95">
       <div className="flex items-center justify-between px-4 py-3 text-white">
+        <a
+          href={photo.downloadUrl}
+          download={photo.name}
+          aria-label="Pobierz"
+          className="-ml-2 p-2 active:opacity-70"
+        >
+          <Download size={22} />
+        </a>
         <span className="text-sm tabular-nums text-white/70">
           {index + 1} / {photos.length}
         </span>
@@ -150,15 +186,17 @@ export default function Lightbox({
               autoPlay
               playsInline
               onLoadedData={() => setLoaded(true)}
+              onError={() => setLoaded(true)}
               className="pointer-events-auto max-h-full max-w-full"
             />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={photo.url}
+              src={fullSize ? photo.url : photo.previewUrl}
               alt="Zdjęcie z wesela"
               draggable={false}
               onLoad={() => setLoaded(true)}
+              onError={() => (fullSize ? setLoaded(true) : setFullSize(true))}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}

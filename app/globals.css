@@ -70,3 +70,7 @@ body {
 .media-fade[data-loaded="true"] {
   opacity: 1;
 }
+
+button{
+  cursor: pointer;
+}

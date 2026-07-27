@@ -8,11 +8,13 @@ import type { Photo } from "@/lib/photos";
 type PhotoGridProps = {
   photos: Photo[];
   emptyLabel?: string;
+  onNeedMore?: () => void;
 };
 
 export default function PhotoGrid({
   photos,
   emptyLabel = "Nie ma tu jeszcze żadnych zdjęć",
+  onNeedMore,
 }: PhotoGridProps) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
@@ -41,6 +43,7 @@ export default function PhotoGrid({
           index={openIndex}
           onIndexChange={setOpenIndex}
           onClose={() => setOpenIndex(null)}
+          onNeedMore={onNeedMore}
         />
       ) : null}
     </>

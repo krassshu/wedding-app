@@ -4,35 +4,35 @@ import { useEffect, useState } from "react";
 import FolderCard from "@/app/components/cards/FolderCard";
 import { FolderGridSkeleton } from "@/app/components/gallery/GallerySkeleton";
 import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
-import { listPhotos, type Photo } from "@/lib/photos";
+import { readStats, writeStats } from "@/lib/galleryCache";
+import { galleryStats, type GalleryStats } from "@/lib/photos";
+import { useHydrated } from "@/lib/useHydrated";
 
 export default function FolderGrid() {
+  const hydrated = useHydrated();
+  return hydrated ? <Folders /> : <FolderGridSkeleton />;
+}
+
+function Folders() {
   const { completedAt } = useUploadQueue();
-  const [photos, setPhotos] = useState<Photo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<GalleryStats | null>(() => readStats());
 
   useEffect(() => {
     let active = true;
 
-    listPhotos(1000)
+    galleryStats()
       .then((result) => {
-        if (active) setPhotos(result);
+        writeStats(result);
+        if (active) setStats(result);
       })
-      .catch(() => {
-        if (active) setPhotos([]);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+      .catch(() => {});
 
     return () => {
       active = false;
     };
   }, [completedAt]);
 
-  const bingoPhotos = photos.filter((photo) => photo.bingoTaskId !== null);
-
-  if (loading) {
+  if (!stats) {
     return <FolderGridSkeleton />;
   }
 
@@ -41,14 +41,14 @@ export default function FolderGrid() {
       <FolderCard
         href="/galeria/wszystkie"
         title="Galeria"
-        count={photos.length}
-        coverUrl={photos[0]?.url ?? null}
+        count={stats.total}
+        coverUrl={stats.cover?.thumbUrl ?? null}
       />
       <FolderCard
         href="/galeria/bingo"
         title="Bingo"
-        count={bingoPhotos.length}
-        coverUrl={bingoPhotos[0]?.url ?? null}
+        count={stats.bingoTotal}
+        coverUrl={stats.bingoCover?.thumbUrl ?? null}
       />
     </div>
   );

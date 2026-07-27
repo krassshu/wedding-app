@@ -6,6 +6,7 @@ import CameraButton from "@/app/components/buttons/CameraButton";
 import GalleryButton from "@/app/components/buttons/GalleryButton";
 import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
 import type { BingoTask } from "@/app/types/bingo";
+import { FileTooLargeError } from "@/lib/uploadQueue";
 
 type BingoModalProps = {
   task: BingoTask | null;
@@ -43,8 +44,12 @@ export default function BingoModal({
       await add(file, task.id);
       onUploaded(task);
       onClose();
-    } catch {
-      setError("Nie udało się dodać zdjęcia. Spróbuj ponownie.");
+    } catch (err) {
+      setError(
+        err instanceof FileTooLargeError
+          ? err.message
+          : "Nie udało się dodać zdjęcia. Spróbuj ponownie.",
+      );
     } finally {
       setUploading(false);
     }

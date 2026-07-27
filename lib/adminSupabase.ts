@@ -1,9 +1,10 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import {
-  BINGO_PREFIX,
   PHOTOS_BUCKET,
   PHOTOS_FOLDER,
+  PREVIEW_TRANSFORM,
+  THUMB_TRANSFORM,
   bingoTaskIdOf,
   mediaKind,
   type Photo,
@@ -26,6 +27,16 @@ function adminClient() {
 
 export function publicUrlFor(path: string): string {
   return `${PUBLIC_URL}/storage/v1/object/public/${PHOTOS_BUCKET}/${path}`;
+}
+
+function renderUrlFor(
+  path: string,
+  transform: typeof THUMB_TRANSFORM | typeof PREVIEW_TRANSFORM,
+): string {
+  const query = new URLSearchParams(
+    Object.entries(transform).map(([key, value]) => [key, String(value)]),
+  );
+  return `${PUBLIC_URL}/storage/v1/render/image/public/${PHOTOS_BUCKET}/${path}?${query}`;
 }
 
 export function internalObjectUrl(path: string): string {
@@ -55,13 +66,18 @@ export async function adminListPhotos(): Promise<Photo[]> {
     .filter((item) => item.id !== null)
     .map((item) => {
       const path = `${PHOTOS_FOLDER}/${item.name}`;
+      const url = publicUrlFor(path);
+      const kind = mediaKind(item.name);
       return {
         name: item.name,
         path,
-        url: publicUrlFor(path),
+        url,
+        thumbUrl: kind === "image" ? renderUrlFor(path, THUMB_TRANSFORM) : url,
+        previewUrl: kind === "image" ? renderUrlFor(path, PREVIEW_TRANSFORM) : url,
+        downloadUrl: `${url}?download=${encodeURIComponent(item.name)}`,
         createdAt: item.created_at ?? "",
         bingoTaskId: bingoTaskIdOf(item.name),
-        kind: mediaKind(item.name),
+        kind,
       };
     });
 }

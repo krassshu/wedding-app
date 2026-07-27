@@ -22,6 +22,8 @@ type UploadQueueValue = {
   online: boolean;
   flushing: boolean;
   completedAt: number;
+  progress: number;
+  uploadingName: string | null;
   add: (file: File, bingoTaskId?: string) => Promise<void>;
   retryAll: () => void;
 };
@@ -33,6 +35,8 @@ const EMPTY: QueueSnapshot = {
   online: true,
   flushing: false,
   completedAt: 0,
+  uploadingId: null,
+  progress: 0,
 };
 
 export default function UploadQueueProvider({ children }: { children: ReactNode }) {
@@ -47,12 +51,15 @@ export default function UploadQueueProvider({ children }: { children: ReactNode 
   const value = useMemo<UploadQueueValue>(() => {
     const pending = snap.items.filter((it) => it.status === "pending").length;
     const errored = snap.items.filter((it) => it.status === "error").length;
+    const uploading = snap.items.find((it) => it.id === snap.uploadingId);
     return {
       pending,
       errored,
       online: snap.online,
       flushing: snap.flushing,
       completedAt: snap.completedAt,
+      progress: snap.progress,
+      uploadingName: uploading?.file.name ?? null,
       add: addToQueue,
       retryAll,
     };
