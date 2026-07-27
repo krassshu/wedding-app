@@ -6,9 +6,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import PhotoGrid from "@/app/components/gallery/PhotoGrid";
 import { PhotoGridSkeleton } from "@/app/components/gallery/GallerySkeleton";
 import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
+import RefreshButton from "@/app/components/ui/RefreshButton";
 import SectionTitle from "@/app/components/ui/SectionTitle";
 import { readFeed, writeFeed } from "@/lib/galleryCache";
 import { listPhotosPage, PHOTOS_PAGE_SIZE, type Photo } from "@/lib/photos";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { useHydrated } from "@/lib/useHydrated";
 
 type FolderPhotosProps = {
@@ -25,27 +27,46 @@ export default function FolderPhotos({
   const { completedAt } = useUploadQueue();
   const hydrated = useHydrated();
 
+  if (!hydrated) {
+    return (
+      <div className="flex flex-col gap-4 pt-2">
+        <TopBar />
+        <SectionTitle title={title} subtitle={subtitle} />
+        <PhotoGridSkeleton count={PHOTOS_PAGE_SIZE} />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-4 pt-2">
+    <PhotoFeed
+      key={slug}
+      bingoOnly={slug === "bingo"}
+      refreshToken={completedAt}
+      title={title}
+      subtitle={subtitle}
+    />
+  );
+}
+
+type TopBarProps = {
+  refreshing?: boolean;
+  onRefresh?: () => void;
+};
+
+function TopBar({ refreshing, onRefresh }: TopBarProps) {
+  return (
+    <div className="flex items-center justify-between">
       <Link
         href="/galeria"
-        className="inline-flex items-center gap-1 self-start text-sm text-muted"
+        className="inline-flex items-center gap-1 text-sm text-muted"
       >
         <ChevronLeft size={16} />
         Foldery
       </Link>
 
-      <SectionTitle title={title} subtitle={subtitle} />
-
-      {hydrated ? (
-        <PhotoFeed
-          key={slug}
-          bingoOnly={slug === "bingo"}
-          refreshToken={completedAt}
-        />
-      ) : (
-        <PhotoGridSkeleton count={PHOTOS_PAGE_SIZE} />
-      )}
+      {onRefresh ? (
+        <RefreshButton onRefresh={onRefresh} refreshing={refreshing} />
+      ) : null}
     </div>
   );
 }
@@ -53,9 +74,11 @@ export default function FolderPhotos({
 type PhotoFeedProps = {
   bingoOnly: boolean;
   refreshToken: number;
+  title: string;
+  subtitle: string;
 };
 
-function PhotoFeed({ bingoOnly, refreshToken }: PhotoFeedProps) {
+function PhotoFeed({ bingoOnly, refreshToken, title, subtitle }: PhotoFeedProps) {
   const cacheKey = bingoOnly ? "bingo" : "wszystkie";
   const [cached] = useState(() => readFeed(cacheKey));
 
@@ -104,36 +127,33 @@ function PhotoFeed({ bingoOnly, refreshToken }: PhotoFeedProps) {
     }
   }, [bingoOnly]);
 
-  const refreshHead = useCallback(() => {
-    let active = true;
+  const refreshHead = useCallback(async () => {
+    const page = await listPhotosPage({
+      limit: PHOTOS_PAGE_SIZE,
+      offset: 0,
+      bingoOnly,
+    });
 
-    listPhotosPage({ limit: PHOTOS_PAGE_SIZE, offset: 0, bingoOnly })
-      .then((page) => {
-        if (!active) return;
-        const fresh = keepNew(page.photos);
-        if (fresh.length === 0) return;
-        offsetRef.current += fresh.length;
-        setPhotos((current) => [...fresh, ...current]);
-      })
-      .catch(() => {});
-
-    return () => {
-      active = false;
-    };
+    const fresh = keepNew(page.photos);
+    if (fresh.length === 0) return;
+    offsetRef.current += fresh.length;
+    setPhotos((current) => [...fresh, ...current]);
   }, [bingoOnly]);
+
+  const { refreshing, refresh } = useAutoRefresh(refreshHead);
 
   useEffect(() => {
     if (offsetRef.current === 0) {
       void loadMore();
       return;
     }
-    return refreshHead();
+    void refreshHead().catch(() => {});
   }, [loadMore, refreshHead]);
 
   useEffect(() => {
     if (lastRefresh.current === refreshToken) return;
     lastRefresh.current = refreshToken;
-    return refreshHead();
+    void refreshHead().catch(() => {});
   }, [refreshToken, refreshHead]);
 
   useEffect(() => {
@@ -160,7 +180,7 @@ function PhotoFeed({ bingoOnly, refreshToken }: PhotoFeedProps) {
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadMore, failed, photos.length]);
+  }, [loadMore, failed, loading, photos.length]);
 
   function retry() {
     setFailed(false);
@@ -168,30 +188,36 @@ function PhotoFeed({ bingoOnly, refreshToken }: PhotoFeedProps) {
     void loadMore();
   }
 
-  if (loading) {
-    return <PhotoGridSkeleton count={PHOTOS_PAGE_SIZE} />;
-  }
-
-  if (failed && photos.length === 0) {
-    return <LoadError onRetry={retry} />;
-  }
-
   return (
-    <>
-      <PhotoGrid photos={photos} onNeedMore={hasMore ? loadMore : undefined} />
+    <div className="flex flex-col gap-4 pt-2">
+      <TopBar refreshing={refreshing} onRefresh={refresh} />
+      <SectionTitle title={title} subtitle={subtitle} />
 
-      {hasMore ? (
-        <div ref={sentinelRef}>
-          {failed ? (
-            <LoadError onRetry={retry} />
-          ) : loadingMore ? (
-            <PhotoGridSkeleton count={6} />
-          ) : (
-            <div className="h-8" />
-          )}
-        </div>
-      ) : null}
-    </>
+      {loading ? (
+        <PhotoGridSkeleton count={PHOTOS_PAGE_SIZE} />
+      ) : failed && photos.length === 0 ? (
+        <LoadError onRetry={retry} />
+      ) : (
+        <>
+          <PhotoGrid
+            photos={photos}
+            onNeedMore={hasMore ? loadMore : undefined}
+          />
+
+          {hasMore ? (
+            <div ref={sentinelRef}>
+              {failed ? (
+                <LoadError onRetry={retry} />
+              ) : loadingMore ? (
+                <PhotoGridSkeleton count={6} />
+              ) : (
+                <div className="h-8" />
+              )}
+            </div>
+          ) : null}
+        </>
+      )}
+    </div>
   );
 }
 

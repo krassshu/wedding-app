@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import FolderCard from "@/app/components/cards/FolderCard";
 import { FolderGridSkeleton } from "@/app/components/gallery/GallerySkeleton";
 import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
+import RefreshButton from "@/app/components/ui/RefreshButton";
 import { readStats, writeStats } from "@/lib/galleryCache";
 import { galleryStats, type GalleryStats } from "@/lib/photos";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { useHydrated } from "@/lib/useHydrated";
 
 export default function FolderGrid() {
@@ -13,43 +15,53 @@ export default function FolderGrid() {
   return hydrated ? <Folders /> : <FolderGridSkeleton />;
 }
 
+const STATS_INTERVAL = 60_000;
+
 function Folders() {
   const { completedAt } = useUploadQueue();
   const [stats, setStats] = useState<GalleryStats | null>(() => readStats());
 
-  useEffect(() => {
-    let active = true;
-
-    galleryStats()
-      .then((result) => {
+  const load = useCallback(
+    () =>
+      galleryStats().then((result) => {
         writeStats(result);
-        if (active) setStats(result);
-      })
-      .catch(() => {});
+        setStats(result);
+      }),
+    [],
+  );
 
-    return () => {
-      active = false;
-    };
-  }, [completedAt]);
+  const { refreshing, refresh } = useAutoRefresh(load, {
+    intervalMs: STATS_INTERVAL,
+  });
 
-  if (!stats) {
-    return <FolderGridSkeleton />;
-  }
+  useEffect(() => {
+    void load().catch(() => {});
+  }, [load, completedAt]);
 
   return (
-    <div className="grid grid-cols-2 gap-3">
-      <FolderCard
-        href="/galeria/wszystkie"
-        title="Galeria"
-        count={stats.total}
-        coverUrl={stats.cover?.thumbUrl ?? null}
-      />
-      <FolderCard
-        href="/galeria/bingo"
-        title="Bingo"
-        count={stats.bingoTotal}
-        coverUrl={stats.bingoCover?.thumbUrl ?? null}
-      />
+    <div className="flex flex-col gap-3">
+      <div className="flex justify-end">
+        <RefreshButton onRefresh={refresh} refreshing={refreshing} />
+      </div>
+
+      {stats ? (
+        <div className="grid grid-cols-2 gap-3">
+          <FolderCard
+            href="/galeria/wszystkie"
+            title="Galeria"
+            count={stats.total}
+            coverUrl={stats.cover?.thumbUrl ?? null}
+          />
+          <FolderCard
+            href="/galeria/bingo"
+            title="Bingo"
+            count={stats.bingoTotal}
+            coverUrl={stats.bingoCover?.thumbUrl ?? null}
+          />
+        </div>
+      ) : (
+        <FolderGridSkeleton />
+      )}
     </div>
   );
 }

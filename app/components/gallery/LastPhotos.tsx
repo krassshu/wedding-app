@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import PhotoGrid from "@/app/components/gallery/PhotoGrid";
 import { PhotoGridSkeleton } from "@/app/components/gallery/GallerySkeleton";
 import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
+import RefreshButton from "@/app/components/ui/RefreshButton";
 import { listLatestPhotos, type Photo } from "@/lib/photos";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 
 type LastPhotosProps = {
   refreshToken?: number;
@@ -20,40 +22,42 @@ export default function LastPhotos({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const load = useCallback(
+    () =>
+      listLatestPhotos(count).then(
+        (result) => {
+          setPhotos(result);
+          setError(null);
+          setLoading(false);
+        },
+        () => {
+          setError("Nie udało się wczytać zdjęć");
+          setLoading(false);
+        },
+      ),
+    [count],
+  );
+
+  const { refreshing, refresh } = useAutoRefresh(load);
+
   useEffect(() => {
-    let active = true;
-
-    listLatestPhotos(count)
-      .then((result) => {
-        if (!active) return;
-        setPhotos(result);
-        setError(null);
-      })
-      .catch(() => {
-        if (!active) return;
-        setError("Nie udało się wczytać zdjęć");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [refreshToken, count, completedAt]);
-
-  if (loading && photos.length === 0) {
-    return <PhotoGridSkeleton count={count} />;
-  }
-
-  if (error) {
-    return <p className="py-10 text-center text-sm text-muted">{error}</p>;
-  }
+    void load();
+  }, [load, refreshToken, completedAt]);
 
   return (
-    <PhotoGrid
-      photos={photos}
-      emptyLabel="Bądź pierwszy i dodaj zdjęcie!"
-    />
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium text-muted">Ostatnio dodane</h2>
+        <RefreshButton onRefresh={refresh} refreshing={refreshing} />
+      </div>
+
+      {loading && photos.length === 0 ? (
+        <PhotoGridSkeleton count={count} />
+      ) : error && photos.length === 0 ? (
+        <p className="py-10 text-center text-sm text-muted">{error}</p>
+      ) : (
+        <PhotoGrid photos={photos} emptyLabel="Bądź pierwszy i dodaj zdjęcie!" />
+      )}
+    </section>
   );
 }

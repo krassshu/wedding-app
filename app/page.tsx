@@ -47,10 +47,7 @@ export default function Home() {
         <p className="text-center text-sm text-plum">{error}</p>
       ) : null}
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium text-muted">Ostatnio dodane</h2>
-        <LastPhotos count={9} />
-      </section>
+      <LastPhotos count={9} />
     </div>
   );
 }
