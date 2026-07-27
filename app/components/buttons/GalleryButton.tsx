@@ -23,7 +23,7 @@ export default function GalleryButton({
     <>
       <Button
         variant={variant}
-        icon={<ImagePlus size={35} strokeWidth={1.8} />}
+        icon={<ImagePlus size={20} strokeWidth={1.8} />}
         onClick={() => inputRef.current?.click()}
         disabled={disabled}
       >
