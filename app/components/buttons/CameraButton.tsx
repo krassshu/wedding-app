@@ -13,7 +13,7 @@ type CameraButtonProps = {
 
 export default function CameraButton({
   onSelect,
-  label = "Zrób szybkie zdjęcie",
+  label = "Zrób zdjęcie",
   variant = "solid",
   disabled = false,
 }: CameraButtonProps) {

@@ -13,7 +13,7 @@ type GalleryButtonProps = {
 
 export default function GalleryButton({
   onSelect,
-  label = "Dodaj zdjęcie z galerii lub zrób zdjęcie (lepszej jakości)",
+  label = "Dodaj zdjęcie z galerii",
   variant = "outline",
   disabled = false,
 }: GalleryButtonProps) {
