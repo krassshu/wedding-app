@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import PhotoGrid from "@/app/components/gallery/PhotoGrid";
 import { PhotoGridSkeleton } from "@/app/components/gallery/GallerySkeleton";
 import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
+import Notice from "@/app/components/ui/Notice";
 import RefreshButton from "@/app/components/ui/RefreshButton";
+import { describeError } from "@/lib/errors";
 import { listLatestPhotos, type Photo } from "@/lib/photos";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
 
@@ -30,8 +32,8 @@ export default function LastPhotos({
           setError(null);
           setLoading(false);
         },
-        () => {
-          setError("Nie udało się wczytać zdjęć");
+        (err: unknown) => {
+          setError(describeError(err, "Nie udało się wczytać zdjęć."));
           setLoading(false);
         },
       ),
@@ -51,11 +53,13 @@ export default function LastPhotos({
         <RefreshButton onRefresh={refresh} refreshing={refreshing} />
       </div>
 
+      {error ? (
+        <Notice onRetry={refresh}>{error}</Notice>
+      ) : null}
+
       {loading && photos.length === 0 ? (
         <PhotoGridSkeleton count={count} />
-      ) : error && photos.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted">{error}</p>
-      ) : (
+      ) : error && photos.length === 0 ? null : (
         <PhotoGrid photos={photos} emptyLabel="Bądź pierwszy i dodaj zdjęcie!" />
       )}
     </section>

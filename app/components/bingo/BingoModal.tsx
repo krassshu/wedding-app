@@ -1,25 +1,28 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import CameraButton from "@/app/components/buttons/CameraButton";
 import GalleryButton from "@/app/components/buttons/GalleryButton";
+import Notice from "@/app/components/ui/Notice";
 import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
 import type { BingoTask } from "@/app/types/bingo";
-import { FileTooLargeError } from "@/lib/uploadQueue";
+import { describeError, validateUploadFile } from "@/lib/errors";
 
 type BingoModalProps = {
   task: BingoTask | null;
+  done: boolean;
   onClose: () => void;
   onUploaded: (task: BingoTask) => void;
 };
 
 export default function BingoModal({
   task,
+  done,
   onClose,
   onUploaded,
 }: BingoModalProps) {
-  const { add } = useUploadQueue();
+  const { add, online } = useUploadQueue();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +38,13 @@ export default function BingoModal({
   if (!task) return null;
 
   async function handleFile(file: File) {
-    if (!task) return;
+    if (!task || uploading) return;
+
+    const problem = validateUploadFile(file);
+    if (problem) {
+      setError(problem);
+      return;
+    }
 
     setUploading(true);
     setError(null);
@@ -45,11 +54,7 @@ export default function BingoModal({
       onUploaded(task);
       onClose();
     } catch (err) {
-      setError(
-        err instanceof FileTooLargeError
-          ? err.message
-          : "Nie udało się dodać zdjęcia. Spróbuj ponownie.",
-      );
+      setError(describeError(err, "Nie udało się dodać zdjęcia. Spróbuj ponownie."));
     } finally {
       setUploading(false);
     }
@@ -81,6 +86,13 @@ export default function BingoModal({
           {task.title}
         </h2>
 
+        {done ? (
+          <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-sm text-plum">
+            <Check size={15} strokeWidth={3} />
+            To zadanie masz już zaliczone — możesz dodać kolejne zdjęcie.
+          </p>
+        ) : null}
+
         <div className="mt-5 flex flex-col gap-3">
           <CameraButton onSelect={handleFile} disabled={uploading} />
           <GalleryButton
@@ -90,13 +102,18 @@ export default function BingoModal({
           />
         </div>
 
+        {!online ? (
+          <p className="mt-4 text-center text-sm text-muted">
+            Jesteś offline — zdjęcie poczeka w kolejce i wyśle się samo, gdy wróci
+            internet.
+          </p>
+        ) : null}
+
         {uploading ? (
           <p className="mt-4 text-center text-sm text-muted">Wysyłanie…</p>
         ) : null}
 
-        {error ? (
-          <p className="mt-4 text-center text-sm text-plum">{error}</p>
-        ) : null}
+        {error ? <Notice className="mt-4">{error}</Notice> : null}
       </div>
     </div>
   );

@@ -4,26 +4,35 @@ import { useState } from "react";
 import CameraButton from "@/app/components/buttons/CameraButton";
 import GalleryButton from "@/app/components/buttons/GalleryButton";
 import LastPhotos from "@/app/components/gallery/LastPhotos";
+import Notice from "@/app/components/ui/Notice";
 import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
-import { FileTooLargeError } from "@/lib/uploadQueue";
+import { describeError, validateUploadFile } from "@/lib/errors";
 
 export default function Home() {
-  const { add } = useUploadQueue();
+  const { add, online } = useUploadQueue();
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleFile(file: File) {
     setError(null);
+
+    const problem = validateUploadFile(file);
+    if (problem) {
+      setNote(null);
+      setError(problem);
+      return;
+    }
+
     try {
       await add(file);
-      setNote("Dodano do wysyłki ❤️");
+      setNote(
+        online
+          ? "Dodano do wysyłki ❤️"
+          : "Dodano do kolejki — wyślemy, gdy wróci internet ❤️",
+      );
       window.setTimeout(() => setNote(null), 2500);
     } catch (err) {
-      setError(
-        err instanceof FileTooLargeError
-          ? err.message
-          : "Nie udało się dodać pliku. Spróbuj ponownie.",
-      );
+      setError(describeError(err, "Nie udało się dodać pliku. Spróbuj ponownie."));
     }
   }
 
@@ -39,13 +48,9 @@ export default function Home() {
         <GalleryButton onSelect={handleFile} />
       </div>
 
-      {note ? (
-        <p className="text-center text-sm text-plum">{note}</p>
-      ) : null}
+      {note ? <p className="text-center text-sm text-plum">{note}</p> : null}
 
-      {error ? (
-        <p className="text-center text-sm text-plum">{error}</p>
-      ) : null}
+      {error ? <Notice>{error}</Notice> : null}
 
       <LastPhotos count={9} />
     </div>

@@ -1,20 +1,21 @@
 "use client";
 
 import { PartyPopper } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import BingoModal from "@/app/components/bingo/BingoModal";
 import BingoTitle from "@/app/components/cards/BingoTitle";
-import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
+import Notice from "@/app/components/ui/Notice";
 import type { BingoTask } from "@/app/types/bingo";
 import {
   BOARD_SIZE,
   boardTasks,
+  hasEnoughTasks,
+  isBoardComplete,
   loadBoard,
   nextBoard,
   saveBoard,
   type BingoBoard,
 } from "@/lib/bingoBoard";
-import { listBingoPhotos } from "@/lib/photos";
 import { useHydrated } from "@/lib/useHydrated";
 
 export default function BingoGrid() {
@@ -32,90 +33,83 @@ function BoardSkeleton() {
   );
 }
 
-function sameIds(a: string[], b: string[]) {
-  return a.length === b.length && a.every((id, index) => id === b[index]);
-}
-
 function Board() {
-  const { completedAt } = useUploadQueue();
-  const [board, setBoard] = useState<BingoBoard>(() => loadBoard());
+  const [{ board, persisted }, setState] = useState(() => loadBoard());
   const [activeTask, setActiveTask] = useState<BingoTask | null>(null);
-  const [serverDone, setServerDone] = useState<string[]>([]);
   const [celebrating, setCelebrating] = useState(false);
-  const knownPaths = useRef<string[]>([]);
-
-  const done = new Set([...board.doneIds, ...serverDone]);
-  const tasks = boardTasks(board);
-
-  const settle = useCallback(
-    (current: BingoBoard, doneIds: string[], serverIds: string[]) => {
-      const all = new Set([...doneIds, ...serverIds]);
-
-      if (!current.taskIds.every((id) => all.has(id))) {
-        if (!sameIds(current.doneIds, doneIds)) {
-          const updated = { ...current, doneIds };
-          saveBoard(updated);
-          setBoard(updated);
-        }
-        setServerDone((previous) =>
-          sameIds(previous, serverIds) ? previous : serverIds,
-        );
-        return;
-      }
-
-      setBoard(nextBoard(current, knownPaths.current));
-      setServerDone([]);
-      setCelebrating(true);
-      window.setTimeout(() => setCelebrating(false), 6000);
-    },
-    [],
-  );
+  const celebrationTimer = useRef<number | null>(null);
 
   useEffect(() => {
-    let active = true;
-
-    listBingoPhotos(1000)
-      .then((photos) => {
-        if (!active) return;
-        knownPaths.current = photos.map((photo) => photo.path);
-
-        if (
-          board.seenPaths.length === 0 &&
-          board.doneIds.length === 0 &&
-          photos.length > 0
-        ) {
-          const seeded = { ...board, seenPaths: knownPaths.current };
-          saveBoard(seeded);
-          setBoard(seeded);
-          return;
-        }
-
-        const seen = new Set(board.seenPaths);
-        const fresh = photos
-          .filter((photo) => !seen.has(photo.path))
-          .map((photo) => photo.bingoTaskId)
-          .filter((id): id is string => id !== null);
-        settle(board, board.doneIds, [...new Set(fresh)].sort());
-      })
-      .catch(() => {});
-
     return () => {
-      active = false;
+      if (celebrationTimer.current !== null) {
+        window.clearTimeout(celebrationTimer.current);
+      }
     };
-  }, [completedAt, board, settle]);
+  }, []);
 
-  function handleUploaded(task: BingoTask) {
+  if (!hasEnoughTasks) {
+    return (
+      <Notice tone="error">
+        Nie udało się wczytać zadań bingo. Odśwież stronę, a jeśli to nie pomoże —
+        daj znać Parze Młodej.
+      </Notice>
+    );
+  }
+
+  const tasks = boardTasks(board);
+  const done = new Set(board.doneIds);
+
+  /**
+   * Zadanie odhaczamy tylko na tym urządzeniu. Kiedy komplet jest gotowy,
+   * losujemy nową planszę — zdjęcia innych gości nic tu nie zmieniają.
+   */
+  function completeTask(task: BingoTask) {
     if (board.doneIds.includes(task.id)) return;
-    settle(board, [...board.doneIds, task.id], serverDone);
+
+    const updated: BingoBoard = {
+      ...board,
+      doneIds: [...board.doneIds, task.id],
+    };
+
+    if (!isBoardComplete(updated)) {
+      setState({ board: updated, persisted: saveBoard(updated) });
+      return;
+    }
+
+    const fresh = nextBoard(updated);
+    setState({ board: fresh, persisted: saveBoard(fresh) });
+    setCelebrating(true);
+
+    if (celebrationTimer.current !== null) {
+      window.clearTimeout(celebrationTimer.current);
+    }
+    celebrationTimer.current = window.setTimeout(() => setCelebrating(false), 6000);
   }
 
   return (
     <>
       {celebrating ? (
-        <div className="flex items-center gap-2 rounded-lg border border-plum bg-plum/10 px-4 py-3 text-sm text-foreground">
-          <PartyPopper size={18} className="shrink-0 text-plum" />
-          Całe bingo zaliczone! Wylosowaliśmy nowe zadania — grajcie dalej ❤️
-        </div>
+        <Notice tone="success">
+          <span className="inline-flex items-center gap-2">
+            <PartyPopper size={16} className="shrink-0 text-plum" />
+            Całe bingo zaliczone! Wylosowaliśmy dla Ciebie nowe zadania — grajcie
+            dalej ❤️
+          </span>
+        </Notice>
+      ) : null}
+
+      {!persisted ? (
+        <Notice tone="info">
+          Twój postęp nie zapisze się na tym urządzeniu (tryb prywatny lub brak
+          miejsca). Plansza wróci do początku po odświeżeniu strony.
+        </Notice>
+      ) : null}
+
+      {tasks.length < BOARD_SIZE ? (
+        <Notice tone="error">
+          Część zadań nie została wczytana. Odśwież stronę, żeby zobaczyć pełną
+          planszę.
+        </Notice>
       ) : null}
 
       <div className="grid grid-cols-3 gap-px overflow-hidden rounded-lg bg-white">
@@ -133,8 +127,9 @@ function Board() {
       <BingoModal
         key={activeTask?.id ?? "bingo-modal"}
         task={activeTask}
+        done={activeTask ? done.has(activeTask.id) : false}
         onClose={() => setActiveTask(null)}
-        onUploaded={handleUploaded}
+        onUploaded={completeTask}
       />
     </>
   );

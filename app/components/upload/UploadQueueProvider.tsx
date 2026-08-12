@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   addToQueue,
+  discardFailed,
   initQueue,
   retryAll,
   subscribe,
@@ -24,8 +25,13 @@ type UploadQueueValue = {
   completedAt: number;
   progress: number;
   uploadingName: string | null;
+  /** false = kolejka nie przetrwa zamknięcia strony. */
+  persistent: boolean;
+  /** Powód pierwszego nieudanego wysłania, po polsku. */
+  errorMessage: string | null;
   add: (file: File, bingoTaskId?: string) => Promise<void>;
   retryAll: () => void;
+  discardFailed: () => void;
 };
 
 const UploadQueueContext = createContext<UploadQueueValue | null>(null);
@@ -37,6 +43,7 @@ const EMPTY: QueueSnapshot = {
   completedAt: 0,
   uploadingId: null,
   progress: 0,
+  persistent: true,
 };
 
 export default function UploadQueueProvider({ children }: { children: ReactNode }) {
@@ -50,18 +57,26 @@ export default function UploadQueueProvider({ children }: { children: ReactNode 
 
   const value = useMemo<UploadQueueValue>(() => {
     const pending = snap.items.filter((it) => it.status === "pending").length;
-    const errored = snap.items.filter((it) => it.status === "error").length;
+    const failed = snap.items.filter((it) => it.status === "error");
     const uploading = snap.items.find((it) => it.id === snap.uploadingId);
+    const firstError =
+      failed.find((it) => it.error)?.error ??
+      snap.items.find((it) => it.error)?.error ??
+      null;
+
     return {
       pending,
-      errored,
+      errored: failed.length,
       online: snap.online,
       flushing: snap.flushing,
       completedAt: snap.completedAt,
       progress: snap.progress,
-      uploadingName: uploading?.file.name ?? null,
+      uploadingName: uploading?.file?.name ?? null,
+      persistent: snap.persistent,
+      errorMessage: firstError,
       add: addToQueue,
       retryAll,
+      discardFailed,
     };
   }, [snap]);
 

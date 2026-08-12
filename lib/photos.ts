@@ -1,3 +1,4 @@
+import { ConfigError, HttpError, NetworkError } from "@/lib/errors";
 import {
   isSupabaseConfigured,
   supabase,
@@ -117,12 +118,20 @@ function putObject(path: string, file: File, onProgress?: UploadProgress) {
         onProgress?.(1);
         resolve();
       } else {
-        reject(new Error(errorMessageFrom(xhr.responseText, xhr.status)));
+        reject(
+          new HttpError(xhr.status, errorMessageFrom(xhr.responseText, xhr.status)),
+        );
       }
     };
-    xhr.onerror = () => reject(new TypeError("Failed to fetch"));
-    xhr.onabort = () => reject(new TypeError("Upload przerwany"));
-    xhr.send(file);
+    xhr.onerror = () => reject(new NetworkError("Przerwane połączenie z serwerem"));
+    xhr.onabort = () => reject(new NetworkError("Wysyłanie zostało przerwane"));
+    xhr.ontimeout = () => reject(new NetworkError("Serwer nie odpowiedział na czas"));
+
+    try {
+      xhr.send(file);
+    } catch (err) {
+      reject(err instanceof Error ? err : new NetworkError());
+    }
   });
 }
 
@@ -134,7 +143,9 @@ export async function uploadPhoto(
   onProgress?: UploadProgress,
 ) {
   if (!isSupabaseConfigured) {
-    throw new Error("Brak konfiguracji Supabase");
+    throw new ConfigError(
+      "Wysyłanie zdjęć jest chwilowo niedostępne (brak konfiguracji serwera). Daj znać Parze Młodej.",
+    );
   }
 
   const name = bingoTaskId
@@ -157,7 +168,15 @@ async function listRaw(limit: number, offset: number) {
       sortBy: { column: "created_at", order: "desc" },
     });
 
-  if (error) throw error;
+  if (error) {
+    const status = Number(
+      (error as { status?: unknown; statusCode?: unknown }).status ??
+        (error as { statusCode?: unknown }).statusCode,
+    );
+    throw Number.isFinite(status) && status > 0
+      ? new HttpError(status, error.message)
+      : error;
+  }
 
   return data ?? [];
 }
@@ -181,8 +200,16 @@ export function toPhoto(name: string, createdAt: string | null): Photo {
   };
 }
 
+function requireConfig() {
+  if (!isSupabaseConfigured) {
+    throw new ConfigError(
+      "Galeria jest chwilowo niedostępna (brak konfiguracji serwera). Daj znać Parze Młodej.",
+    );
+  }
+}
+
 export async function listPhotos(limit = 100): Promise<Photo[]> {
-  if (!isSupabaseConfigured) return [];
+  requireConfig();
 
   return (await listRaw(limit, 0))
     .filter((item) => item.id !== null)
@@ -208,9 +235,7 @@ export async function listPhotosPage({
   offset = 0,
   bingoOnly = false,
 }: PhotoPageOptions = {}): Promise<PhotoPage> {
-  if (!isSupabaseConfigured) {
-    return { photos: [], nextOffset: offset, hasMore: false };
-  }
+  requireConfig();
 
   const photos: Photo[] = [];
   const rawLimit = bingoOnly ? Math.max(limit, 100) : limit;
@@ -250,7 +275,7 @@ export async function galleryStats(): Promise<GalleryStats> {
     bingoCover: null,
   };
 
-  if (!isSupabaseConfigured) return stats;
+  requireConfig();
 
   let offset = 0;
 
@@ -273,11 +298,6 @@ export async function galleryStats(): Promise<GalleryStats> {
     offset += raw.length;
     if (raw.length < STATS_PAGE_SIZE) return stats;
   }
-}
-
-export async function listBingoPhotos(limit = 100): Promise<Photo[]> {
-  const photos = await listPhotos(limit);
-  return photos.filter((photo) => photo.bingoTaskId !== null);
 }
 
 export async function listLatestPhotos(count = 9): Promise<Photo[]> {

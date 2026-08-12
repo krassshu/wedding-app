@@ -5,7 +5,25 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import MediaThumb from "@/app/components/gallery/MediaThumb";
 import { PhotoGridSkeleton } from "@/app/components/gallery/GallerySkeleton";
+import Notice from "@/app/components/ui/Notice";
+import { describeError } from "@/lib/errors";
 import type { Photo } from "@/lib/photos";
+
+/** Wyciąga komunikat błędu z odpowiedzi API (JSON lub zwykły tekst). */
+async function errorFrom(res: Response, fallback: string): Promise<string> {
+  const text = await res.text().catch(() => "");
+  if (text) {
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown };
+      if (typeof parsed.error === "string" && parsed.error) return parsed.error;
+    } catch {
+      if (text.length < 200) return text;
+    }
+  }
+  if (res.status === 401) return "Sesja wygasła. Zaloguj się ponownie.";
+  if (res.status >= 500) return "Serwer nie odpowiada. Spróbuj ponownie za chwilę.";
+  return fallback;
+}
 
 export default function AdminPanel() {
   const router = useRouter();
@@ -16,26 +34,44 @@ export default function AdminPanel() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const res = await fetch("/api/admin/photos", { cache: "no-store" });
+
       if (res.status === 401) {
+        setError("Sesja wygasła. Zaloguj się ponownie.");
         router.refresh();
         return;
       }
-      const data = await res.json();
-      setPhotos(data.photos ?? []);
+
+      if (!res.ok) {
+        setError(await errorFrom(res, "Nie udało się wczytać zdjęć."));
+        return;
+      }
+
+      const data = (await res.json()) as { photos?: unknown };
+      if (!Array.isArray(data.photos)) {
+        setError("Serwer zwrócił nieprawidłową odpowiedź.");
+        return;
+      }
+
+      setPhotos(data.photos as Photo[]);
       setError(null);
-    } catch {
-      setError("Nie udało się wczytać zdjęć.");
+    } catch (err) {
+      setError(describeError(err, "Nie udało się wczytać zdjęć."));
     } finally {
       setLoading(false);
+      setBusy(false);
     }
   }, [router]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  function reload() {
+    setBusy(true);
+    void load();
+  }
 
   function toggle(path: string) {
     setSelected((prev) => {
@@ -65,8 +101,17 @@ export default function AdminPanel() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ paths: [...selected] }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        setError(await errorFrom(res, "Nie udało się pobrać paczki."));
+        return;
+      }
+
       const blob = await res.blob();
+      if (blob.size === 0) {
+        setError("Serwer zwrócił pustą paczkę. Spróbuj ponownie.");
+        return;
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -75,8 +120,8 @@ export default function AdminPanel() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch {
-      setError("Nie udało się pobrać paczki.");
+    } catch (err) {
+      setError(describeError(err, "Nie udało się pobrać paczki."));
     } finally {
       setBusy(false);
     }
@@ -99,19 +144,29 @@ export default function AdminPanel() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ paths: [...selected] }),
       });
-      if (!res.ok) throw new Error();
+
+      if (!res.ok) {
+        setError(await errorFrom(res, "Nie udało się usunąć plików."));
+        return;
+      }
+
       const removed = new Set(selected);
       setPhotos((prev) => prev.filter((p) => !removed.has(p.path)));
       setSelected(new Set());
-    } catch {
-      setError("Nie udało się usunąć plików.");
+    } catch (err) {
+      setError(describeError(err, "Nie udało się usunąć plików."));
     } finally {
       setBusy(false);
     }
   }
 
   async function logout() {
-    await fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
+    try {
+      const res = await fetch("/api/admin/logout", { method: "POST" });
+      if (!res.ok) setError("Nie udało się wylogować. Spróbuj ponownie.");
+    } catch (err) {
+      setError(describeError(err, "Nie udało się wylogować."));
+    }
     router.refresh();
   }
 
@@ -176,7 +231,11 @@ export default function AdminPanel() {
         </button>
       </div>
 
-      {error ? <p className="text-center text-sm text-plum">{error}</p> : null}
+      {error ? (
+        <Notice onRetry={reload} retryLabel="Odśwież">
+          {error}
+        </Notice>
+      ) : null}
 
       {loading ? (
         <PhotoGridSkeleton count={12} />

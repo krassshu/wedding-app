@@ -6,8 +6,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import PhotoGrid from "@/app/components/gallery/PhotoGrid";
 import { PhotoGridSkeleton } from "@/app/components/gallery/GallerySkeleton";
 import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
+import Notice from "@/app/components/ui/Notice";
 import RefreshButton from "@/app/components/ui/RefreshButton";
 import SectionTitle from "@/app/components/ui/SectionTitle";
+import { describeError } from "@/lib/errors";
 import { readFeed, writeFeed } from "@/lib/galleryCache";
 import { listPhotosPage, PHOTOS_PAGE_SIZE, type Photo } from "@/lib/photos";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
@@ -86,7 +88,8 @@ function PhotoFeed({ bingoOnly, refreshToken, title, subtitle }: PhotoFeedProps)
   const [loading, setLoading] = useState(!cached);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(cached?.hasMore ?? true);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const offsetRef = useRef(cached?.offset ?? 0);
   const pendingRef = useRef(false);
@@ -117,9 +120,9 @@ function PhotoFeed({ bingoOnly, refreshToken, title, subtitle }: PhotoFeedProps)
       const fresh = keepNew(page.photos);
       if (fresh.length > 0) setPhotos((current) => [...current, ...fresh]);
       setHasMore(page.hasMore);
-      setFailed(false);
-    } catch {
-      setFailed(true);
+      setFailed(null);
+    } catch (err) {
+      setFailed(describeError(err, "Nie udało się wczytać zdjęć."));
     } finally {
       pendingRef.current = false;
       setLoadingMore(false);
@@ -128,16 +131,22 @@ function PhotoFeed({ bingoOnly, refreshToken, title, subtitle }: PhotoFeedProps)
   }, [bingoOnly]);
 
   const refreshHead = useCallback(async () => {
-    const page = await listPhotosPage({
-      limit: PHOTOS_PAGE_SIZE,
-      offset: 0,
-      bingoOnly,
-    });
+    try {
+      const page = await listPhotosPage({
+        limit: PHOTOS_PAGE_SIZE,
+        offset: 0,
+        bingoOnly,
+      });
 
-    const fresh = keepNew(page.photos);
-    if (fresh.length === 0) return;
-    offsetRef.current += fresh.length;
-    setPhotos((current) => [...fresh, ...current]);
+      setRefreshError(null);
+      const fresh = keepNew(page.photos);
+      if (fresh.length === 0) return;
+      offsetRef.current += fresh.length;
+      setPhotos((current) => [...fresh, ...current]);
+    } catch (err) {
+      setRefreshError(describeError(err, "Nie udało się odświeżyć galerii."));
+      throw err;
+    }
   }, [bingoOnly]);
 
   const { refreshing, refresh } = useAutoRefresh(refreshHead);
@@ -183,7 +192,7 @@ function PhotoFeed({ bingoOnly, refreshToken, title, subtitle }: PhotoFeedProps)
   }, [loadMore, failed, loading, photos.length]);
 
   function retry() {
-    setFailed(false);
+    setFailed(null);
     setLoadingMore(true);
     void loadMore();
   }
@@ -193,10 +202,16 @@ function PhotoFeed({ bingoOnly, refreshToken, title, subtitle }: PhotoFeedProps)
       <TopBar refreshing={refreshing} onRefresh={refresh} />
       <SectionTitle title={title} subtitle={subtitle} />
 
+      {refreshError && photos.length > 0 ? (
+        <Notice onRetry={refresh} retryLabel="Odśwież">
+          {refreshError}
+        </Notice>
+      ) : null}
+
       {loading ? (
         <PhotoGridSkeleton count={PHOTOS_PAGE_SIZE} />
       ) : failed && photos.length === 0 ? (
-        <LoadError onRetry={retry} />
+        <Notice onRetry={retry}>{failed}</Notice>
       ) : (
         <>
           <PhotoGrid
@@ -207,7 +222,9 @@ function PhotoFeed({ bingoOnly, refreshToken, title, subtitle }: PhotoFeedProps)
           {hasMore ? (
             <div ref={sentinelRef}>
               {failed ? (
-                <LoadError onRetry={retry} />
+                <Notice onRetry={retry}>
+                  {failed} Pokazujemy zdjęcia wczytane do tej pory.
+                </Notice>
               ) : loadingMore ? (
                 <PhotoGridSkeleton count={6} />
               ) : (
@@ -217,21 +234,6 @@ function PhotoFeed({ bingoOnly, refreshToken, title, subtitle }: PhotoFeedProps)
           ) : null}
         </>
       )}
-    </div>
-  );
-}
-
-function LoadError({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="flex flex-col items-center gap-3 py-6">
-      <p className="text-sm text-muted">Nie udało się wczytać zdjęć</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="rounded-full bg-plum px-4 py-1.5 text-sm font-medium text-white"
-      >
-        Spróbuj ponownie
-      </button>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, ImageOff, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -8,7 +8,14 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import BingoCaption from "@/app/components/gallery/BingoCaption";
 import type { Photo } from "@/lib/photos";
+
+type CaptionBox = {
+  left: number;
+  bottom: number;
+  width: number;
+};
 
 type LightboxProps = {
   photos: Photo[];
@@ -30,6 +37,7 @@ export default function Lightbox({
 }: LightboxProps) {
   const photo = photos[index];
   const containerRef = useRef<HTMLDivElement>(null);
+  const mediaRef = useRef<HTMLElement | null>(null);
   const start = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
   const moved = useRef(false);
 
@@ -39,6 +47,9 @@ export default function Lightbox({
   const [dragging, setDragging] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [fullSize, setFullSize] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [captionBox, setCaptionBox] = useState<CaptionBox | null>(null);
 
   const reset = useCallback(() => {
     setScale(1);
@@ -46,6 +57,37 @@ export default function Lightbox({
     setDragX(0);
     setLoaded(false);
     setFullSize(false);
+    setFailed(false);
+    setCaptionBox(null);
+  }, []);
+
+  /**
+   * Zdjęcie jest skalowane przez `object-contain`, więc jego rzeczywiste
+   * krawędzie znamy dopiero po zmierzeniu — dzięki temu podpis siada na dole
+   * samego zdjęcia, a nie na czarnym tle pod nim.
+   */
+  const measureCaption = useCallback(() => {
+    const media = mediaRef.current;
+    const box = containerRef.current;
+    if (!media || !box) return;
+
+    const rect = media.getBoundingClientRect();
+    const bounds = box.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+
+    setCaptionBox({
+      left: rect.left - bounds.left,
+      bottom: bounds.bottom - rect.bottom,
+      width: rect.width,
+    });
+  }, []);
+
+  /** Ponowna próba wczytania — od miniatury podglądowej. */
+  const retry = useCallback(() => {
+    setFailed(false);
+    setLoaded(false);
+    setFullSize(false);
+    setAttempt((current) => current + 1);
   }, []);
 
   const go = useCallback(
@@ -87,6 +129,19 @@ export default function Lightbox({
       original.onload = null;
     };
   }, [scale, fullSize, index, photos]);
+
+  useEffect(() => {
+    if (!loaded) return;
+
+    measureCaption();
+    window.addEventListener("resize", measureCaption);
+    window.addEventListener("orientationchange", measureCaption);
+
+    return () => {
+      window.removeEventListener("resize", measureCaption);
+      window.removeEventListener("orientationchange", measureCaption);
+    };
+  }, [loaded, fullSize, index, measureCaption]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -179,31 +234,72 @@ export default function Lightbox({
         ) : null}
 
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-2">
-          {photo.kind === "video" ? (
+          {failed ? (
+            <div className="pointer-events-auto flex max-w-xs flex-col items-center gap-3 rounded-xl bg-white/10 px-6 py-5 text-center text-white backdrop-blur">
+              <ImageOff size={24} className="text-white/70" />
+              <p className="text-sm leading-snug">
+                Nie udało się wczytać tego pliku. Sprawdź połączenie z internetem.
+              </p>
+              <button
+                type="button"
+                onClick={retry}
+                className="rounded-full bg-white/20 px-4 py-1.5 text-sm font-medium"
+              >
+                Spróbuj ponownie
+              </button>
+            </div>
+          ) : photo.kind === "video" ? (
             <video
+              key={attempt}
+              ref={(node) => {
+                mediaRef.current = node;
+              }}
               src={photo.url}
               controls
               autoPlay
               playsInline
-              onLoadedData={() => setLoaded(true)}
-              onError={() => setLoaded(true)}
+              onLoadedData={() => {
+                setLoaded(true);
+                measureCaption();
+              }}
+              onError={() => {
+                setLoaded(true);
+                setFailed(true);
+              }}
               className="pointer-events-auto max-h-full max-w-full"
             />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img
+              key={attempt}
+              ref={(node) => {
+                mediaRef.current = node;
+              }}
               src={fullSize ? photo.url : photo.previewUrl}
               alt="Zdjęcie z wesela"
               draggable={false}
-              onLoad={() => setLoaded(true)}
-              onError={() => (fullSize ? setLoaded(true) : setFullSize(true))}
+              onLoad={() => {
+                setLoaded(true);
+                measureCaption();
+              }}
+              onError={() => {
+                // Miniatura mogła się nie wygenerować — próbujemy oryginału.
+                if (!fullSize) {
+                  setFullSize(true);
+                  return;
+                }
+                setLoaded(true);
+                setFailed(true);
+              }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}
               style={{
                 transform: `translate(${offset.x + dragX}px, ${offset.y}px) scale(${scale})`,
-                transition: dragging ? "none" : "transform 200ms ease, opacity 300ms ease",
+                transition: dragging
+                  ? "none"
+                  : "transform 200ms ease, opacity 300ms ease",
                 touchAction: "none",
                 cursor: zoomed ? "grab" : "zoom-in",
               }}
@@ -213,7 +309,20 @@ export default function Lightbox({
           )}
         </div>
 
-        {!loaded ? (
+        {loaded && !failed && !zoomed && !dragging && captionBox ? (
+          <div
+            className="pointer-events-none absolute"
+            style={{
+              left: captionBox.left,
+              bottom: captionBox.bottom,
+              width: captionBox.width,
+            }}
+          >
+            <BingoCaption taskId={photo.bingoTaskId} variant="full" />
+          </div>
+        ) : null}
+
+        {!loaded && !failed ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white/80" />
           </div>

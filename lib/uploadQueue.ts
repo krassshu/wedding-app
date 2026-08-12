@@ -1,3 +1,9 @@
+import {
+  describeError,
+  isNetworkError,
+  UploadValidationError,
+  validateUploadFile,
+} from "@/lib/errors";
 import { uploadPhoto } from "@/lib/photos";
 
 export type QueueStatus = "pending" | "error";
@@ -9,6 +15,7 @@ export type QueueItem = {
   createdAt: number;
   attempts: number;
   status: QueueStatus;
+  /** Komunikat po polsku, gotowy do pokazania gościowi. */
   error?: string;
 };
 
@@ -19,20 +26,13 @@ export type QueueSnapshot = {
   completedAt: number;
   uploadingId: string | null;
   progress: number;
+  /** false = kolejka żyje tylko w pamięci, zamknięcie strony ją skasuje. */
+  persistent: boolean;
 };
 
 const DB_NAME = "wedding-uploads";
 const STORE = "pending";
 const MAX_ATTEMPTS = 5;
-
-export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
-
-export class FileTooLargeError extends Error {
-  constructor() {
-    super("Plik jest za duży — maksymalnie 100 MB");
-    this.name = "FileTooLargeError";
-  }
-}
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 let items: QueueItem[] = [];
@@ -41,23 +41,48 @@ let completedAt = 0;
 let initialized = false;
 let uploadingId: string | null = null;
 let progress = 0;
+let persistent = true;
 const listeners = new Set<(snap: QueueSnapshot) => void>();
 
 function isBrowser() {
-  return typeof window !== "undefined" && typeof indexedDB !== "undefined";
+  return typeof window !== "undefined";
+}
+
+/** Brak IndexedDB nie blokuje wysyłki — kolejka działa wtedy tylko w pamięci. */
+function hasIndexedDb() {
+  return typeof indexedDB !== "undefined";
 }
 
 function openDb(): Promise<IDBDatabase> {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
+      if (!isBrowser() || !hasIndexedDb()) {
+        reject(new Error("IndexedDB niedostępne"));
+        return;
+      }
+
+      let req: IDBOpenDBRequest;
+      try {
+        req = indexedDB.open(DB_NAME, 1);
+      } catch (err) {
+        // Tryb prywatny w części przeglądarek rzuca już przy otwarciu bazy.
+        reject(err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
+
       req.onupgradeneeded = () => {
         if (!req.result.objectStoreNames.contains(STORE)) {
           req.result.createObjectStore(STORE, { keyPath: "id" });
         }
       };
       req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+      req.onerror = () => reject(req.error ?? new Error("Błąd IndexedDB"));
+      req.onblocked = () => reject(new Error("Baza kolejki jest zablokowana"));
+    });
+
+    dbPromise.catch(() => {
+      // Bez bazy kolejka nadal działa, ale tylko do zamknięcia strony.
+      persistent = false;
     });
   }
   return dbPromise;
@@ -93,6 +118,24 @@ async function idbDelete(id: string): Promise<void> {
   });
 }
 
+/** Zapis do bazy nie może wywrócić wysyłki — w razie awarii gramy z pamięci. */
+async function persistItem(item: QueueItem): Promise<void> {
+  try {
+    await idbPut(item);
+  } catch {
+    persistent = false;
+    emit();
+  }
+}
+
+async function forgetItem(id: string): Promise<void> {
+  try {
+    await idbDelete(id);
+  } catch {
+    persistent = false;
+  }
+}
+
 function snapshot(): QueueSnapshot {
   return {
     items: items.slice().sort((a, b) => a.createdAt - b.createdAt),
@@ -101,6 +144,7 @@ function snapshot(): QueueSnapshot {
     completedAt,
     uploadingId,
     progress,
+    persistent,
   };
 }
 
@@ -116,20 +160,9 @@ function randomId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function looksLikeNetworkError(err: unknown): boolean {
-  if (!isBrowser() || !navigator.onLine) return true;
-  if (err instanceof TypeError) return true;
-  const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
-  return (
-    msg.includes("failed to fetch") ||
-    msg.includes("network") ||
-    msg.includes("load failed") ||
-    msg.includes("timeout")
-  );
-}
-
 export async function addToQueue(file: File, bingoTaskId?: string): Promise<void> {
-  if (file.size > MAX_UPLOAD_BYTES) throw new FileTooLargeError();
+  const problem = validateUploadFile(file);
+  if (problem) throw new UploadValidationError(problem);
 
   const item: QueueItem = {
     id: randomId(),
@@ -141,7 +174,7 @@ export async function addToQueue(file: File, bingoTaskId?: string): Promise<void
   };
   items = [...items, item];
   emit();
-  await idbPut(item);
+  await persistItem(item);
   void flush();
 }
 
@@ -156,6 +189,19 @@ export async function flush(): Promise<void> {
   emit();
 
   for (const item of ready) {
+    // Plik mógł przepaść przy przywracaniu kolejki z bazy — nie ma czego wysyłać.
+    if (!(item.file instanceof Blob) || item.file.size === 0) {
+      const broken: QueueItem = {
+        ...item,
+        status: "error",
+        error: "Plik nie jest już dostępny na urządzeniu. Dodaj go jeszcze raz.",
+      };
+      items = items.map((it) => (it.id === item.id ? broken : it));
+      await persistItem(broken);
+      emit();
+      continue;
+    }
+
     uploadingId = item.id;
     progress = 0;
     emit();
@@ -167,20 +213,20 @@ export async function flush(): Promise<void> {
         emit();
       });
       items = items.filter((it) => it.id !== item.id);
-      await idbDelete(item.id);
+      await forgetItem(item.id);
       completedAt = Date.now();
       emit();
     } catch (err) {
-      const networkError = looksLikeNetworkError(err);
+      const networkError = isNetworkError(err);
       const attempts = item.attempts + 1;
       const next: QueueItem = {
         ...item,
         attempts,
         status: !networkError && attempts >= MAX_ATTEMPTS ? "error" : "pending",
-        error: err instanceof Error ? err.message : String(err),
+        error: describeError(err, "Nie udało się wysłać pliku."),
       };
       items = items.map((it) => (it.id === item.id ? next : it));
-      await idbPut(next);
+      await persistItem(next);
       emit();
       if (networkError) break;
     }
@@ -197,7 +243,7 @@ export async function retry(id: string): Promise<void> {
   if (!item) return;
   const next: QueueItem = { ...item, status: "pending", attempts: 0, error: undefined };
   items = items.map((it) => (it.id === id ? next : it));
-  await idbPut(next);
+  await persistItem(next);
   emit();
   void flush();
 }
@@ -207,7 +253,16 @@ export function retryAll(): void {
     it.status === "error" ? { ...it, status: "pending", attempts: 0, error: undefined } : it,
   );
   emit();
-  void Promise.all(items.map((it) => idbPut(it))).then(() => flush());
+  void Promise.all(items.map(persistItem)).then(() => flush());
+}
+
+/** Usuwa pliki, których nie da się wysłać — gość sam decyduje, że odpuszcza. */
+export function discardFailed(): void {
+  const failed = items.filter((it) => it.status === "error");
+  if (failed.length === 0) return;
+  items = items.filter((it) => it.status !== "error");
+  emit();
+  void Promise.all(failed.map((it) => forgetItem(it.id)));
 }
 
 export function subscribe(cb: (snap: QueueSnapshot) => void): () => void {
@@ -221,9 +276,22 @@ export async function initQueue(): Promise<void> {
   initialized = true;
 
   try {
-    items = await idbAll();
+    const restored = await idbAll();
+    // Gość mógł już coś dorzucić, zanim baza odpowiedziała — nie gubimy tego.
+    const known = new Set(items.map((item) => item.id));
+    items = [
+      ...items,
+      ...restored.filter(
+        (item): item is QueueItem =>
+          Boolean(item) &&
+          typeof item.id === "string" &&
+          !known.has(item.id) &&
+          item.file instanceof Blob,
+      ),
+    ];
   } catch {
-    items = [];
+    // Bez trwałej kolejki działamy dalej — informuje o tym flaga `persistent`.
+    persistent = false;
   }
   emit();
 
