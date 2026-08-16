@@ -1,12 +1,12 @@
 "use client";
 
-import { CheckCircle2, Download, LogOut, Trash2 } from "lucide-react";
+import { CheckCircle2, Download, HardDrive, LogOut, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import MediaThumb from "@/app/components/gallery/MediaThumb";
 import { PhotoGridSkeleton } from "@/app/components/gallery/GallerySkeleton";
 import Notice from "@/app/components/ui/Notice";
-import { describeError } from "@/lib/errors";
+import { describeError, formatBytes } from "@/lib/errors";
 import type { Photo } from "@/lib/photos";
 
 /** Wyciąga komunikat błędu z odpowiedzi API (JSON lub zwykły tekst). */
@@ -32,6 +32,13 @@ export default function AdminPanel() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [storageHealth, setStorageHealth] = useState<{
+    status: "ok" | "warning";
+    usedPercent: number;
+    availableKb: number;
+    thresholdPercent: number;
+    stale: boolean;
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -64,13 +71,24 @@ export default function AdminPanel() {
     }
   }, [router]);
 
+  const loadHealth = useCallback(async () => {
+    const response = await fetch("/api/admin/storage-health", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = (await response.json()) as typeof storageHealth;
+    setStorageHealth(data);
+  }, []);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    queueMicrotask(() => {
+      void load();
+      void loadHealth();
+    });
+  }, [load, loadHealth]);
 
   function reload() {
     setBusy(true);
     void load();
+    void loadHealth();
   }
 
   function toggle(path: string) {
@@ -88,7 +106,12 @@ export default function AdminPanel() {
   }
 
   function downloadAll() {
-    window.location.href = "/api/admin/download?all=1";
+    const link = document.createElement("a");
+    link.href = "/api/admin/download?all=1";
+    link.download = "wesele-zdjecia.zip";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   }
 
   async function downloadSelected() {
@@ -235,6 +258,23 @@ export default function AdminPanel() {
         <Notice onRetry={reload} retryLabel="Odśwież">
           {error}
         </Notice>
+      ) : null}
+
+      {storageHealth ? (
+        <div
+          className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-sm ${
+            storageHealth.status === "warning" || storageHealth.stale
+              ? "border-plum/40 bg-plum/5 text-plum"
+              : "border-line text-muted"
+          }`}
+        >
+          <HardDrive size={18} className="shrink-0" />
+          <span>
+            Dysk zdjęć: {storageHealth.usedPercent}% zajęte · wolne{" "}
+            {formatBytes(storageHealth.availableKb * 1024)}
+            {storageHealth.stale ? " · monitoring nieaktualny" : ""}
+          </span>
+        </div>
       ) : null}
 
       {loading ? (

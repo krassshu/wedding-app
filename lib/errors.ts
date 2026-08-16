@@ -1,6 +1,6 @@
-export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+import { MAX_UPLOAD_BYTES, normalizedMediaType } from "@/lib/uploadPolicy";
 
-const MEDIA_TYPE = /^(image|video)\//i;
+export { MAX_UPLOAD_BYTES } from "@/lib/uploadPolicy";
 
 /** Błąd HTTP z serwera zdjęć — niesie status, żeby dało się go opisać po polsku. */
 export class HttpError extends Error {
@@ -39,6 +39,14 @@ export class ConfigError extends Error {
   }
 }
 
+/** Sesja gościa wygasła — kolejka ma poczekać na ponowne podanie kodu. */
+export class UploadAuthError extends Error {
+  constructor(message = "Podaj kod weselny, aby wysłać pliki.") {
+    super(message);
+    this.name = "UploadAuthError";
+  }
+}
+
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB";
   const mb = bytes / (1024 * 1024);
@@ -65,9 +73,8 @@ export function validateUploadFile(file: File | null | undefined): string | null
     return `Plik jest za duży (${formatBytes(file.size)}). Maksymalnie ${formatBytes(MAX_UPLOAD_BYTES)}.`;
   }
 
-  // Część telefonów nie podaje typu pliku — wtedy nie blokujemy wysyłki.
-  if (file.type && !MEDIA_TYPE.test(file.type)) {
-    return "To nie jest zdjęcie ani film. Wybierz plik ze zdjęciem lub filmem.";
+  if (!normalizedMediaType(file)) {
+    return "Ten format zdjęcia lub filmu nie jest obsługiwany.";
   }
 
   return null;
@@ -133,7 +140,11 @@ export function describeError(
   err: unknown,
   fallback = "Coś poszło nie tak. Spróbuj ponownie.",
 ): string {
-  if (err instanceof UploadValidationError || err instanceof ConfigError) {
+  if (
+    err instanceof UploadValidationError ||
+    err instanceof ConfigError ||
+    err instanceof UploadAuthError
+  ) {
     return err.message;
   }
 

@@ -12,7 +12,7 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-postgres}"]
       interval: 5s
@@ -23,8 +23,8 @@ services:
     image: postgrest/postgrest:v12.2.3
     restart: unless-stopped
     depends_on:
-      db:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     environment:
       PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-postgres}
       PGRST_DB_SCHEMAS: public,storage
@@ -48,8 +48,8 @@ services:
     image: supabase/storage-api:v1.14.5
     restart: unless-stopped
     depends_on:
-      db:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       rest:
         condition: service_started
     environment:
@@ -58,7 +58,7 @@ services:
       PGRST_JWT_SECRET: ${JWT_SECRET}
       DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-postgres}
       POSTGREST_URL: http://rest:3000
-      FILE_SIZE_LIMIT: ${FILE_SIZE_LIMIT:-104857600}
+      FILE_SIZE_LIMIT: ${FILE_SIZE_LIMIT:-94371840}
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
       TENANT_ID: wedding
@@ -68,6 +68,29 @@ services:
       IMGPROXY_URL: http://imgproxy:5001
     volumes:
       - storage-data:/var/lib/storage
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:5000/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  db-init:
+    image: postgres:16-bookworm
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      ROLE_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./docker/db-roles.sql:/db-roles.sql:ro
+    entrypoint:
+      - bash
+      - -c
+      - |
+        psql -h db -U supabase_admin -d ${POSTGRES_DB:-postgres} \
+          -v ON_ERROR_STOP=1 -v role_password="$$ROLE_PASSWORD" -f /db-roles.sql
+    restart: "no"
 
   storage-init:
     image: postgres:16-bookworm
@@ -75,7 +98,7 @@ services:
       db:
         condition: service_healthy
       storage:
-        condition: service_started
+        condition: service_healthy
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD}
     volumes:
@@ -84,26 +107,50 @@ services:
       - bash
       - -c
       - |
-        until psql -h db -U postgres -d ${POSTGRES_DB:-postgres} -c "select 1 from storage.buckets limit 1" > /dev/null 2>&1; do
+        until psql -h db -U postgres -d ${POSTGRES_DB:-postgres} -tAc \
+          "select 1 from information_schema.columns where table_schema='storage' and table_name='buckets' and column_name='file_size_limit'" \
+          | grep -q 1; do
           echo "waiting for storage migrations"
           sleep 3
         done
         psql -h db -U postgres -d ${POSTGRES_DB:-postgres} -v ON_ERROR_STOP=1 -f /storage-init.sql
     restart: "no"
 
+  storage-monitor:
+    image: alpine:3.22
+    restart: unless-stopped
+    depends_on:
+      storage:
+        condition: service_started
+    environment:
+      DISK_ALERT_PERCENT: ${DISK_ALERT_PERCENT:-80}
+      DISK_CHECK_INTERVAL_SECONDS: ${DISK_CHECK_INTERVAL_SECONDS:-60}
+      DISK_ALERT_WEBHOOK_URL: ${DISK_ALERT_WEBHOOK_URL:-}
+      STORAGE_STATUS_FILE: /status/status.json
+    volumes:
+      - storage-data:/storage:ro
+      - monitor-status:/status
+      - ./docker/storage-monitor.sh:/usr/local/bin/storage-monitor.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/storage-monitor.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q '\"status\":\"ok\"' /status/status.json"]
+      interval: 60s
+      timeout: 5s
+      retries: 2
+
   gateway:
     image: nginx:1.27-bookworm
     restart: unless-stopped
     depends_on:
       storage:
-        condition: service_started
+        condition: service_healthy
       rest:
         condition: service_started
     volumes:
       - ./docker/gateway.conf:/etc/nginx/conf.d/default.conf:ro
       - render-cache:/var/cache/nginx
     ports:
-      - "${GATEWAY_PORT:-8000}:8000"
+      - "127.0.0.1:${GATEWAY_PORT:-8000}:8000"
 
   web:
     build:
@@ -113,13 +160,31 @@ services:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
     restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      SUPABASE_INTERNAL_URL: http://gateway:8000
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      UPLOAD_GUEST_CODE: ${UPLOAD_GUEST_CODE}
+      UPLOAD_SESSION_SECRET: ${UPLOAD_SESSION_SECRET}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
+      STORAGE_MONITOR_STATUS_FILE: /run/wedding-monitor/status.json
     depends_on:
       gateway:
         condition: service_started
+      storage-init:
+        condition: service_completed_successfully
+      storage-monitor:
+        condition: service_started
+    volumes:
+      - monitor-status:/run/wedding-monitor:ro
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
 
 volumes:
   db-data:
   storage-data:
   render-cache:
+  monitor-status:

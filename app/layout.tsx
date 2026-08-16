@@ -4,6 +4,7 @@ import "./globals.css";
 import BottomNav from "@/app/components/layout/BottomNav";
 import Header from "@/app/components/layout/Header";
 import PendingUploads from "@/app/components/upload/PendingUploads";
+import UploadAccessGate from "@/app/components/upload/UploadAccessGate";
 import UploadQueueProvider from "@/app/components/upload/UploadQueueProvider";
 
 const poppins = Poppins({
@@ -41,6 +42,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <UploadQueueProvider>
+          <UploadAccessGate />
           <Header />
           <div className="flex-1 w-full max-w-2xl mx-auto px-4 pb-28">
             {children}
