@@ -21,6 +21,15 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      ...["/", "/bingo", "/galeria", "/galeria/:path*", "/admin"].map((source) => ({
+        source,
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "private, no-cache, no-store, max-age=0, must-revalidate",
+          },
+        ],
+      })),
     ];
   },
 };
