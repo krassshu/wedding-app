@@ -1,10 +1,32 @@
 import { NextResponse } from "next/server";
 import { clientIp, takeRateLimit } from "@/lib/rateLimit";
 import { createUploadJwt, hasUploadAccess } from "@/lib/uploadAuth";
-import { isValidUploadDescriptor } from "@/lib/uploadPolicy";
+import { PHOTOS_BUCKET, isValidUploadDescriptor } from "@/lib/uploadPolicy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function encodedObjectPath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
+async function objectAlreadyStored(path: string, expectedSize: number): Promise<boolean> {
+  const internalUrl = process.env.SUPABASE_INTERNAL_URL ?? "";
+  if (!internalUrl) return false;
+
+  try {
+    const response = await fetch(
+      `${internalUrl}/storage/v1/object/public/${PHOTOS_BUCKET}/${encodedObjectPath(path)}`,
+      { method: "HEAD", cache: "no-store" },
+    );
+    if (!response.ok) return false;
+    return Number(response.headers.get("content-length")) === expectedSize;
+  } catch {
+    // Kontrola jest optymalizacją naprawiającą utraconą odpowiedź. Jej awaria
+    // nie może blokować normalnego uploadu TUS.
+    return false;
+  }
+}
 
 export async function POST(req: Request) {
   if (!(await hasUploadAccess())) {
@@ -37,6 +59,12 @@ export async function POST(req: Request) {
       { error: "Serwer wysyłania nie jest skonfigurowany." },
       { status: 503 },
     );
+  }
+
+  // Odpowiedź kończąca TUS mogła zginąć, mimo że Storage zapisał cały obiekt.
+  // Stała ścieżka i rozmiar pozwalają bezpiecznie domknąć trwałą kolejkę.
+  if (await objectAlreadyStored(path, size)) {
+    return NextResponse.json({ alreadyUploaded: true });
   }
 
   // JWT jest krótkotrwały, a polityka RLS wiąże go dokładnie z jedną ścieżką.

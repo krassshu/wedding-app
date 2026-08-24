@@ -6,7 +6,7 @@ import {
   UploadValidationError,
   validateUploadFile,
 } from "@/lib/errors";
-import { createUploadPath, uploadPhoto } from "@/lib/photos";
+import { createUploadPath, isUploadAlreadyStored, uploadPhoto } from "@/lib/photos";
 
 export type QueueStatus = "pending" | "error";
 
@@ -117,9 +117,29 @@ async function idbDelete(id: string): Promise<void> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    const req = tx.objectStore(STORE).delete(id);
+    let settled = false;
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      if (error) reject(error);
+      else resolve();
+    };
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      try {
+        tx.abort();
+      } catch {
+        // Transakcja mogła zakończyć się między sprawdzeniem a abort().
+      }
+      finish(new Error("Usuwanie pliku z lokalnej kolejki przekroczyło limit czasu"));
+    }, 3_000);
+
+    req.onerror = () => finish(req.error ?? new Error("Błąd usuwania z IndexedDB"));
+    tx.oncomplete = () => finish();
+    tx.onerror = () => finish(tx.error ?? new Error("Błąd transakcji IndexedDB"));
+    tx.onabort = () => finish(tx.error ?? new Error("Przerwano transakcję IndexedDB"));
   });
 }
 
@@ -134,11 +154,18 @@ async function persistItem(item: QueueItem): Promise<void> {
 }
 
 async function forgetItem(id: string): Promise<void> {
-  try {
-    await idbDelete(id);
-  } catch {
-    persistent = false;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await idbDelete(id);
+      return;
+    } catch {
+      if (attempt < 2) {
+        await new Promise((resolve) => window.setTimeout(resolve, 100 * 2 ** attempt));
+      }
+    }
   }
+  persistent = false;
+  emit();
 }
 
 function snapshot(): QueueSnapshot {
@@ -237,65 +264,69 @@ async function flushUnlocked(): Promise<void> {
   flushing = true;
   emit();
 
-  for (const item of ready) {
-    // Plik mógł przepaść przy przywracaniu kolejki z bazy — nie ma czego wysyłać.
-    if (!(item.file instanceof Blob) || item.file.size === 0) {
-      const broken: QueueItem = {
-        ...item,
-        status: "error",
-        error: "Plik nie jest już dostępny na urządzeniu. Dodaj go jeszcze raz.",
-      };
-      items = items.map((it) => (it.id === item.id ? broken : it));
-      await persistItem(broken);
-      emit();
-      continue;
-    }
-
-    uploadingId = item.id;
-    progress = 0;
-    emit();
-
-    try {
-      await uploadPhoto(item.path, item.file, (fraction) => {
-        if (fraction - progress < 0.02 && fraction < 1) return;
-        progress = fraction;
+  try {
+    for (const item of ready) {
+      // Plik mógł przepaść przy przywracaniu kolejki z bazy — nie ma czego wysyłać.
+      if (!(item.file instanceof Blob) || item.file.size === 0) {
+        const broken: QueueItem = {
+          ...item,
+          status: "error",
+          error: "Plik nie jest już dostępny na urządzeniu. Dodaj go jeszcze raz.",
+        };
+        items = items.map((it) => (it.id === item.id ? broken : it));
+        await persistItem(broken);
         emit();
-      });
-      items = items.filter((it) => it.id !== item.id);
-      await forgetItem(item.id);
-      completedAt = Date.now();
-      emit();
-    } catch (err) {
-      if (err instanceof UploadAuthError) {
-        const waiting: QueueItem = { ...item, error: describeError(err) };
-        items = items.map((it) => (it.id === item.id ? waiting : it));
-        await persistItem(waiting);
-        emit();
-        break;
+        continue;
       }
 
-      const networkError = isNetworkError(err);
-      const attempts = item.attempts + 1;
-      const next: QueueItem = {
-        ...item,
-        attempts,
-        status:
-          shouldStopImmediately(err) || (!networkError && attempts >= MAX_ATTEMPTS)
-            ? "error"
-            : "pending",
-        error: describeError(err, "Nie udało się wysłać pliku."),
-      };
-      items = items.map((it) => (it.id === item.id ? next : it));
-      await persistItem(next);
+      uploadingId = item.id;
+      progress = 0;
       emit();
-      if (networkError) break;
-    }
-  }
 
-  uploadingId = null;
-  progress = 0;
-  flushing = false;
-  emit();
+      try {
+        await uploadPhoto(item.path, item.file, (fraction) => {
+          if (fraction - progress < 0.02 && fraction < 1) return;
+          progress = fraction;
+          emit();
+        });
+        items = items.filter((it) => it.id !== item.id);
+        completedAt = Date.now();
+        // Sukces jest już potwierdzony przez serwer. Nie blokujemy schowania
+        // paska na operacji IndexedDB, która na Safari może długo nie kończyć transakcji.
+        emit();
+        void forgetItem(item.id);
+      } catch (err) {
+        if (err instanceof UploadAuthError) {
+          const waiting: QueueItem = { ...item, error: describeError(err) };
+          items = items.map((it) => (it.id === item.id ? waiting : it));
+          await persistItem(waiting);
+          emit();
+          break;
+        }
+
+        const networkError = isNetworkError(err);
+        const attempts = item.attempts + 1;
+        const next: QueueItem = {
+          ...item,
+          attempts,
+          status:
+            shouldStopImmediately(err) || (!networkError && attempts >= MAX_ATTEMPTS)
+              ? "error"
+              : "pending",
+          error: describeError(err, "Nie udało się wysłać pliku."),
+        };
+        items = items.map((it) => (it.id === item.id ? next : it));
+        await persistItem(next);
+        emit();
+        if (networkError) break;
+      }
+    }
+  } finally {
+    uploadingId = null;
+    progress = 0;
+    flushing = false;
+    emit();
+  }
 }
 
 export async function flush(): Promise<void> {
@@ -356,22 +387,40 @@ export async function initQueue(): Promise<void> {
     const restored = await idbAll();
     // Gość mógł już coś dorzucić, zanim baza odpowiedziała — nie gubimy tego.
     const known = new Set(items.map((item) => item.id));
-    items = [
-      ...items,
-      ...restored.filter(
+    const candidates = restored
+      .filter(
         (item): item is QueueItem =>
           Boolean(item) &&
           typeof item.id === "string" &&
           !known.has(item.id) &&
           item.file instanceof Blob &&
           typeof item.file.name === "string",
-      ).map((item) => ({
+      )
+      .map((item) => ({
         ...item,
         path:
           typeof item.path === "string" && item.path
             ? item.path
             : createUploadPath(item.file, item.bingoTaskId),
-      })),
+      }));
+    const reconciled = await Promise.all(
+      candidates.map(async (item) => {
+        try {
+          if (await isUploadAlreadyStored(item.path, item.file)) {
+            // Nie pokazujemy nawet przez chwilę 100% dla pliku, który serwer już ma.
+            completedAt = Date.now();
+            void forgetItem(item.id);
+            return null;
+          }
+        } catch {
+          // Brak sieci lub autoryzacji: zachowujemy plik i obsłuży go zwykła kolejka.
+        }
+        return item;
+      }),
+    );
+    items = [
+      ...items,
+      ...reconciled.filter((item): item is QueueItem => item !== null),
     ];
   } catch {
     // Bez trwałej kolejki działamy dalej — informuje o tym flaga `persistent`.

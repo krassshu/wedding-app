@@ -62,6 +62,10 @@ const VIDEO_EXTENSIONS = new Set([
   "quicktime",
 ]);
 
+const COMPLETION_CHECK_DELAY_MS = 1_000;
+const COMPLETION_CHECK_INTERVAL_MS = 2_000;
+const COMPLETION_CHECK_TIMEOUT_MS = 30_000;
+
 export function mediaKind(name: string): MediaKind {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   return VIDEO_EXTENSIONS.has(ext) ? "video" : "image";
@@ -113,7 +117,7 @@ function errorMessageFrom(responseText: string, status: number) {
   }
 }
 
-async function uploadToken(path: string, file: File): Promise<string> {
+async function uploadToken(path: string, file: File): Promise<string | null> {
   let response: Response;
   try {
     response = await fetch("/api/upload/authorize", {
@@ -138,11 +142,16 @@ async function uploadToken(path: string, file: File): Promise<string> {
     throw new HttpError(response.status, errorMessageFrom(text, response.status));
   }
 
-  const data = JSON.parse(text) as { token?: unknown };
+  const data = JSON.parse(text) as { token?: unknown; alreadyUploaded?: unknown };
+  if (data.alreadyUploaded === true) return null;
   if (typeof data.token !== "string" || !data.token) {
     throw new NetworkError("Serwer nie zwrócił zezwolenia na wysyłanie.");
   }
   return data.token;
+}
+
+export async function isUploadAlreadyStored(path: string, file: File): Promise<boolean> {
+  return (await uploadToken(path, file)) === null;
 }
 
 function resumableUpload(
@@ -152,9 +161,28 @@ function resumableUpload(
   onProgress?: UploadProgress,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let completionCheckStartedAt: number | null = null;
+    let completionCheckTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearCompletionCheck = () => {
+      if (completionCheckTimer !== null) {
+        clearTimeout(completionCheckTimer);
+        completionCheckTimer = null;
+      }
+    };
+
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearCompletionCheck();
+      if (error) reject(error);
+      else resolve();
+    };
+
     const contentType = normalizedMediaType(file);
     if (!contentType) {
-      reject(new UploadValidationError("Ten format pliku nie jest obsługiwany."));
+      finish(new UploadValidationError("Ten format pliku nie jest obsługiwany."));
       return;
     }
 
@@ -169,7 +197,11 @@ function resumableUpload(
           (status === 0 || status === 423 || status === 429 || status >= 500)
         );
       },
-      uploadDataDuringCreation: true,
+      // Wysyłanie całego małego pliku już w POST powodowało na iOS sekwencję
+      // 201 -> ponowne POST-y 409 i brak końcowego onSuccess. Klasyczny przebieg
+      // TUS (POST tworzy sesję, PATCH wysyła dane) jest o jeden RTT wolniejszy,
+      // ale jednoznacznie rozdziela utworzenie uploadu od jego zakończenia.
+      uploadDataDuringCreation: false,
       removeFingerprintOnSuccess: true,
       fingerprint: async (selected) =>
         [
@@ -190,19 +222,63 @@ function resumableUpload(
         cacheControl: "31536000",
       },
       onProgress: (sent, total) => {
-        if (total > 0) onProgress?.(sent / total);
+        if (total <= 0) return;
+        const fraction = Math.min(sent / total, 1);
+        onProgress?.(fraction);
+
+        // Safari potrafi zgłosić wysłanie wszystkich bajtów, ale tus-js-client
+        // nie wywołuje później onSuccess. Potwierdzamy więc zapis niezależnie.
+        if (fraction === 1 && completionCheckStartedAt === null) {
+          completionCheckStartedAt = Date.now();
+
+          const checkStoredFile = async () => {
+            if (settled || completionCheckStartedAt === null) return;
+
+            try {
+              if ((await uploadToken(path, file)) === null) {
+                onProgress?.(1);
+                finish();
+                void upload.abort(false).catch(() => undefined);
+                return;
+              }
+            } catch {
+              // Pierwotny upload nadal może zakończyć się normalnie.
+            }
+
+            if (Date.now() - completionCheckStartedAt >= COMPLETION_CHECK_TIMEOUT_MS) {
+              finish(
+                new NetworkError(
+                  "Serwer nie potwierdził zakończenia wysyłania. Spróbujemy ponownie.",
+                ),
+              );
+              void upload.abort(false).catch(() => undefined);
+              return;
+            }
+
+            completionCheckTimer = setTimeout(
+              () => void checkStoredFile(),
+              COMPLETION_CHECK_INTERVAL_MS,
+            );
+          };
+
+          completionCheckTimer = setTimeout(
+            () => void checkStoredFile(),
+            COMPLETION_CHECK_DELAY_MS,
+          );
+        }
       },
       onSuccess: () => {
         onProgress?.(1);
-        resolve();
+        finish();
       },
       onError: (error) => {
+        if (settled) return;
         if (error instanceof DetailedError && error.originalResponse) {
           const status = error.originalResponse.getStatus();
-          reject(new HttpError(status, error.originalResponse.getBody() || error.message));
+          finish(new HttpError(status, error.originalResponse.getBody() || error.message));
           return;
         }
-        reject(new NetworkError(error.message));
+        finish(new NetworkError(error.message));
       },
     });
 
@@ -229,7 +305,16 @@ export async function uploadPhoto(
     );
   }
 
+  const result = {
+    name: path.slice(`${PHOTOS_FOLDER}/`.length),
+    path,
+    url: publicUrl(path),
+  };
   const token = await uploadToken(path, file);
+  if (token === null) {
+    onProgress?.(1);
+    return result;
+  }
   try {
     await resumableUpload(path, file, token, onProgress);
   } catch (error) {
@@ -240,7 +325,7 @@ export async function uploadPhoto(
         const response = await fetch(publicUrl(path), { method: "HEAD", cache: "no-store" });
         if (response.ok) {
           onProgress?.(1);
-          return { name: path.slice(`${PHOTOS_FOLDER}/`.length), path, url: publicUrl(path) };
+          return result;
         }
       } catch {
         // Zachowujemy pierwotny błąd; kolejka ponowi próbę po odzyskaniu sieci.
@@ -249,7 +334,7 @@ export async function uploadPhoto(
     throw error;
   }
 
-  return { name: path.slice(`${PHOTOS_FOLDER}/`.length), path, url: publicUrl(path) };
+  return result;
 }
 
 async function listRaw(limit: number, offset: number) {
