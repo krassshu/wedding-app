@@ -9,6 +9,8 @@ import {
   mediaKind,
   type Photo,
 } from "@/lib/photos";
+import { MAX_UPLOAD_BYTES } from "@/lib/uploadPolicy";
+import type { ArchiveFile } from "@/lib/archiveParts";
 
 const INTERNAL_URL =
   process.env.SUPABASE_INTERNAL_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -80,6 +82,45 @@ export async function adminListPhotos(): Promise<Photo[]> {
         kind,
       };
     });
+}
+
+export async function adminListArchiveFiles(): Promise<ArchiveFile[]> {
+  const supabase = adminClient();
+  const files: ArchiveFile[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+
+  for (;;) {
+    const { data, error } = await supabase.storage
+      .from(PHOTOS_BUCKET)
+      .list(PHOTOS_FOLDER, {
+        limit: pageSize,
+        offset,
+        sortBy: { column: "created_at", order: "desc" },
+      });
+    if (error) throw error;
+
+    const page = data ?? [];
+    for (const item of page) {
+      if (item.id === null) continue;
+      const rawSize = (item.metadata as { size?: unknown } | null)?.size;
+      const size = Number(rawSize);
+      files.push({
+        path: `${PHOTOS_FOLDER}/${item.name}`,
+        // Brak metadanych nie może spowodować zbyt dużej części.
+        size: Number.isFinite(size) && size > 0 ? size : MAX_UPLOAD_BYTES,
+        createdAt: item.created_at ?? "",
+      });
+    }
+
+    offset += page.length;
+    if (page.length < pageSize) break;
+  }
+
+  return files.sort(
+    (left, right) =>
+      right.createdAt.localeCompare(left.createdAt) || left.path.localeCompare(right.path),
+  );
 }
 
 export async function adminDeletePhotos(paths: string[]): Promise<number> {

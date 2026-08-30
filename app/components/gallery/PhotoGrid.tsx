@@ -3,6 +3,7 @@
 import { Check, Download, Loader2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import PhotoCard from "@/app/components/cards/PhotoCard";
+import GalleryArchiveDownload from "@/app/components/gallery/GalleryArchiveDownload";
 import Lightbox from "@/app/components/gallery/Lightbox";
 import Notice from "@/app/components/ui/Notice";
 import {
@@ -128,14 +129,7 @@ export default function PhotoGrid({
       (shareSupported && photos.some((photo) => photo.kind === "image")) ? (
         <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
           {showArchiveDownload ? (
-            <a
-              href="/api/gallery/archive"
-              download="wesele-ania-oskar.zip"
-              className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm text-muted"
-            >
-              <Download size={15} />
-              Pobierz wszystko (ZIP)
-            </a>
+            <GalleryArchiveDownload />
           ) : null}
 
           {shareSupported && photos.some((photo) => photo.kind === "image") ? (
