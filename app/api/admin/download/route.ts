@@ -1,12 +1,10 @@
-import archiver from "archiver";
-import { Readable } from "node:stream";
 import { isAuthed } from "@/lib/adminAuth";
 import {
   adminConfigured,
   adminListPhotos,
-  internalObjectUrl,
   isSafePath,
 } from "@/lib/adminSupabase";
+import { streamPhotoZip } from "@/lib/photoArchive";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,51 +17,9 @@ function textResponse(message: string, status: number): Response {
 }
 
 function streamZip(paths: string[]): Response {
-  const archive = archiver("zip", { store: true });
-
-  archive.on("error", (err) => {
-    console.error("[admin/download] błąd archiwum", err);
-  });
-  archive.on("warning", (err) => {
-    console.warn("[admin/download] ostrzeżenie archiwum", err);
-  });
-
-  void (async () => {
-    const failed: string[] = [];
-
-    for (const path of paths) {
-      try {
-        const res = await fetch(internalObjectUrl(path));
-        if (res.ok && res.body) {
-          const name = path.replace(/^gallery\//, "");
-          archive.append(Readable.fromWeb(res.body as never), { name });
-        } else {
-          failed.push(`${path} — serwer odpowiedział ${res.status}`);
-        }
-      } catch (err) {
-        failed.push(`${path} — ${err instanceof Error ? err.message : "błąd pobierania"}`);
-      }
-    }
-
-    // Zamiast po cichu gubić pliki, dokładamy do paczki raport z powodami.
-    if (failed.length > 0) {
-      console.error("[admin/download] nie pobrano plików:", failed);
-      archive.append(
-        `Nie udało się dodać ${failed.length} plików do paczki:\n\n${failed.join("\n")}\n`,
-        { name: "NIEPOBRANE-PLIKI.txt" },
-      );
-    }
-
-    void archive.finalize();
-  })();
-
-  const webStream = Readable.toWeb(archive) as unknown as ReadableStream<Uint8Array>;
-  return new Response(webStream, {
-    headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": 'attachment; filename="wesele-zdjecia.zip"',
-      "Cache-Control": "no-store",
-    },
+  return streamPhotoZip(paths, {
+    filename: "wesele-zdjecia.zip",
+    logPrefix: "[admin/download]",
   });
 }
 

@@ -18,12 +18,14 @@ type PhotoGridProps = {
   photos: Photo[];
   emptyLabel?: string;
   onNeedMore?: () => void;
+  showArchiveDownload?: boolean;
 };
 
 export default function PhotoGrid({
   photos,
   emptyLabel = "Nie ma tu jeszcze żadnych zdjęć",
   onNeedMore,
+  showArchiveDownload = false,
 }: PhotoGridProps) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const shareSupported = useFileShareSupport();
@@ -122,8 +124,21 @@ export default function PhotoGrid({
 
   return (
     <>
-      {shareSupported && photos.some((photo) => photo.kind === "image") ? (
-        <div className="mb-3 flex items-center justify-end">
+      {showArchiveDownload ||
+      (shareSupported && photos.some((photo) => photo.kind === "image")) ? (
+        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+          {showArchiveDownload ? (
+            <a
+              href="/api/gallery/archive"
+              download="wesele-ania-oskar.zip"
+              className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm text-muted"
+            >
+              <Download size={15} />
+              Pobierz wszystko (ZIP)
+            </a>
+          ) : null}
+
+          {shareSupported && photos.some((photo) => photo.kind === "image") ? (
           <button
             type="button"
             onClick={() => (selecting ? resetSelection() : setSelecting(true))}
@@ -132,6 +147,7 @@ export default function PhotoGrid({
             {selecting ? <X size={15} /> : <Check size={15} />}
             {selecting ? "Anuluj" : "Wybierz zdjęcia"}
           </button>
+          ) : null}
         </div>
       ) : null}
 

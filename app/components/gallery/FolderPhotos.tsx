@@ -217,6 +217,7 @@ function PhotoFeed({ bingoOnly, refreshToken, title, subtitle }: PhotoFeedProps)
           <PhotoGrid
             photos={photos}
             onNeedMore={hasMore ? loadMore : undefined}
+            showArchiveDownload={!bingoOnly}
           />
 
           {hasMore ? (
