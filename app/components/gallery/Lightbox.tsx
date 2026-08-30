@@ -1,6 +1,14 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Download, ImageOff, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  ImageOff,
+  Loader2,
+  Share2,
+  X,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -9,7 +17,13 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import BingoCaption from "@/app/components/gallery/BingoCaption";
+import {
+  isShareCancelled,
+  prepareMediaFile,
+  sharePreparedFiles,
+} from "@/lib/mediaSave";
 import type { Photo } from "@/lib/photos";
+import { useFileShareSupport } from "@/lib/useFileShareSupport";
 
 type CaptionBox = {
   left: number;
@@ -38,6 +52,7 @@ export default function Lightbox({
   const photo = photos[index];
   const containerRef = useRef<HTMLDivElement>(null);
   const mediaRef = useRef<HTMLElement | null>(null);
+  const saveRequestRef = useRef<AbortController | null>(null);
   const start = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
   const moved = useRef(false);
 
@@ -50,8 +65,14 @@ export default function Lightbox({
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [captionBox, setCaptionBox] = useState<CaptionBox | null>(null);
+  const shareSupported = useFileShareSupport();
+  const [preparedFile, setPreparedFile] = useState<File | null>(null);
+  const [preparingSave, setPreparingSave] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const reset = useCallback(() => {
+    saveRequestRef.current?.abort();
+    saveRequestRef.current = null;
     setScale(1);
     setOffset({ x: 0, y: 0 });
     setDragX(0);
@@ -59,7 +80,12 @@ export default function Lightbox({
     setFullSize(false);
     setFailed(false);
     setCaptionBox(null);
+    setPreparedFile(null);
+    setPreparingSave(false);
+    setSaveMessage(null);
   }, []);
+
+  useEffect(() => () => saveRequestRef.current?.abort(), []);
 
   /**
    * Zdjęcie jest skalowane przez `object-contain`, więc jego rzeczywiste
@@ -199,6 +225,48 @@ export default function Lightbox({
     }
   }
 
+  async function prepareForGallery() {
+    if (preparingSave) return;
+    const controller = new AbortController();
+    saveRequestRef.current?.abort();
+    saveRequestRef.current = controller;
+    setPreparingSave(true);
+    setSaveMessage(null);
+    try {
+      const file = await prepareMediaFile(photo, controller.signal);
+      if (controller.signal.aborted) return;
+      setPreparedFile(file);
+      setSaveMessage("Gotowe — dotknij ponownie i wybierz „Zapisz obraz” lub aplikację Zdjęcia.");
+    } catch (error) {
+      if (!isShareCancelled(error)) {
+        setSaveMessage(
+          error instanceof Error ? error.message : "Nie udało się przygotować pliku.",
+        );
+      }
+    } finally {
+      if (saveRequestRef.current === controller) {
+        saveRequestRef.current = null;
+        setPreparingSave(false);
+      }
+    }
+  }
+
+  function saveToGallery() {
+    if (!preparedFile) {
+      void prepareForGallery();
+      return;
+    }
+
+    setSaveMessage("Wybierz „Zapisz obraz” lub aplikację Zdjęcia.");
+    void sharePreparedFiles([preparedFile]).catch((error) => {
+      if (!isShareCancelled(error)) {
+        setSaveMessage(
+          error instanceof Error ? error.message : "Nie udało się otworzyć galerii.",
+        );
+      }
+    });
+  }
+
   if (!photo) return null;
   const canPrev = index > 0;
   const canNext = index < photos.length - 1;
@@ -207,14 +275,33 @@ export default function Lightbox({
   return (
     <div className="fixed inset-0 z-[70] flex flex-col bg-black/95">
       <div className="flex items-center justify-between px-4 py-3 text-white">
-        <a
-          href={photo.downloadUrl}
-          download={photo.name}
-          aria-label="Pobierz"
-          className="-ml-2 p-2 active:opacity-70"
-        >
-          <Download size={22} />
-        </a>
+        {shareSupported ? (
+          <button
+            type="button"
+            onClick={saveToGallery}
+            disabled={preparingSave}
+            aria-label={preparedFile ? "Zapisz w galerii zdjęć" : "Przygotuj do zapisania"}
+            className="-ml-2 inline-flex items-center gap-1.5 p-2 text-sm active:opacity-70 disabled:opacity-60"
+          >
+            {preparingSave ? (
+              <Loader2 size={21} className="animate-spin" />
+            ) : preparedFile ? (
+              <Share2 size={21} />
+            ) : (
+              <Download size={21} />
+            )}
+            <span>{preparedFile ? "Do galerii" : "Zapisz"}</span>
+          </button>
+        ) : (
+          <a
+            href={photo.downloadUrl}
+            download={photo.name}
+            aria-label="Pobierz"
+            className="-ml-2 p-2 active:opacity-70"
+          >
+            <Download size={22} />
+          </a>
+        )}
         <span className="text-sm tabular-nums text-white/70">
           {index + 1} / {photos.length}
         </span>
@@ -222,6 +309,12 @@ export default function Lightbox({
           <X size={24} />
         </button>
       </div>
+
+      {saveMessage ? (
+        <p className="bg-black px-4 pb-2 text-center text-xs leading-snug text-white/75">
+          {saveMessage}
+        </p>
+      ) : null}
 
       <div ref={containerRef} className="relative flex-1 select-none overflow-hidden">
         {!zoomed ? (
