@@ -9,27 +9,49 @@ import { useUploadQueue } from "@/app/components/upload/UploadQueueProvider";
 import { describeError, validateUploadFile } from "@/lib/errors";
 
 export default function Home() {
-  const { add, online } = useUploadQueue();
+  const { add, addMany, online } = useUploadQueue();
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleFile(file: File) {
+    await handleFiles([file]);
+  }
+
+  async function handleFiles(files: File[]) {
     setError(null);
 
-    const problem = validateUploadFile(file);
-    if (problem) {
+    const valid: File[] = [];
+    const problems: string[] = [];
+    for (const file of files) {
+      const problem = validateUploadFile(file);
+      if (problem) problems.push(problem);
+      else valid.push(file);
+    }
+
+    if (valid.length === 0) {
       setNote(null);
-      setError(problem);
+      setError(problems[0] ?? "Nie udało się odczytać wybranych plików.");
       return;
     }
 
     try {
-      await add(file);
+      if (valid.length === 1) await add(valid[0]);
+      else await addMany(valid);
+
+      const count = valid.length;
+      const filesLabel = count === 1 ? "plik" : count < 5 ? "pliki" : "plików";
       setNote(
         online
-          ? "Dodano do wysyłki ❤️"
-          : "Dodano do kolejki — wyślemy, gdy wróci internet ❤️",
+          ? `Dodano ${count} ${filesLabel} do wysyłki ❤️`
+          : `Dodano ${count} ${filesLabel} do kolejki — wyślemy, gdy wróci internet ❤️`,
       );
+      if (problems.length > 0) {
+        const skipped = problems.length;
+        const skippedLabel = skipped === 1 ? "plik" : skipped < 5 ? "pliki" : "plików";
+        setError(
+          `Pominięto ${skipped} ${skippedLabel}. ${problems[0]}`,
+        );
+      }
       window.setTimeout(() => setNote(null), 2500);
     } catch (err) {
       setError(describeError(err, "Nie udało się dodać pliku. Spróbuj ponownie."));
@@ -45,7 +67,10 @@ export default function Home() {
 
       <div className="flex flex-col gap-3">
         <CameraButton onSelect={handleFile} />
-        <GalleryButton onSelect={handleFile} />
+        <GalleryButton
+          onSelect={handleFiles}
+          label="Dodaj zdjęcia i filmy z galerii"
+        />
       </div>
 
       {note ? <p className="text-center text-sm text-plum">{note}</p> : null}

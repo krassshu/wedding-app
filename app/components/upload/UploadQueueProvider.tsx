@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  addManyToQueue,
   addToQueue,
   discardFailed,
   initQueue,
@@ -30,6 +31,7 @@ type UploadQueueValue = {
   /** Powód pierwszego nieudanego wysłania, po polsku. */
   errorMessage: string | null;
   add: (file: File, bingoTaskId?: string) => Promise<void>;
+  addMany: (files: File[], bingoTaskId?: string) => Promise<void>;
   retryAll: () => void;
   discardFailed: () => void;
 };
@@ -75,6 +77,7 @@ export default function UploadQueueProvider({ children }: { children: ReactNode 
       persistent: snap.persistent,
       errorMessage: firstError,
       add: addToQueue,
+      addMany: addManyToQueue,
       retryAll,
       discardFailed,
     };

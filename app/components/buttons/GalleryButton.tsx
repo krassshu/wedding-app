@@ -5,7 +5,7 @@ import { useRef } from "react";
 import Button from "@/app/components/ui/Button";
 
 type GalleryButtonProps = {
-  onSelect: (file: File) => void;
+  onSelect: (files: File[]) => void;
   label?: string;
   variant?: "outline" | "solid";
   disabled?: boolean;
@@ -33,10 +33,11 @@ export default function GalleryButton({
         ref={inputRef}
         type="file"
         accept="image/*,video/*"
+        multiple
         className="hidden"
         onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) onSelect(file);
+          const files = Array.from(event.target.files ?? []);
+          if (files.length > 0) onSelect(files);
           event.target.value = "";
         }}
       />

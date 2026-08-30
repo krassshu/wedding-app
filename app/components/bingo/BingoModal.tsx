@@ -22,7 +22,7 @@ export default function BingoModal({
   onClose,
   onUploaded,
 }: BingoModalProps) {
-  const { add, online } = useUploadQueue();
+  const { add, addMany, online } = useUploadQueue();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,11 +38,21 @@ export default function BingoModal({
   if (!task) return null;
 
   async function handleFile(file: File) {
+    await handleFiles([file]);
+  }
+
+  async function handleFiles(files: File[]) {
     if (!task || uploading) return;
 
-    const problem = validateUploadFile(file);
-    if (problem) {
-      setError(problem);
+    const problems = files
+      .map(validateUploadFile)
+      .filter((problem): problem is string => problem !== null);
+    if (problems.length > 0) {
+      setError(
+        problems.length === 1
+          ? problems[0]
+          : `Nie dodano ${problems.length} nieprawidłowych plików. ${problems[0]}`,
+      );
       return;
     }
 
@@ -50,7 +60,8 @@ export default function BingoModal({
     setError(null);
 
     try {
-      await add(file, task.id);
+      if (files.length === 1) await add(files[0], task.id);
+      else await addMany(files, task.id);
       onUploaded(task);
       onClose();
     } catch (err) {
@@ -96,9 +107,9 @@ export default function BingoModal({
         <div className="mt-5 flex flex-col gap-3">
           <CameraButton onSelect={handleFile} disabled={uploading} />
           <GalleryButton
-            onSelect={handleFile}
+            onSelect={handleFiles}
             disabled={uploading}
-            label="Wybierz z galerii"
+            label="Wybierz zdjęcia z galerii"
           />
         </div>
 

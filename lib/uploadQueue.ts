@@ -193,21 +193,33 @@ function randomId() {
 }
 
 export async function addToQueue(file: File, bingoTaskId?: string): Promise<void> {
-  const problem = validateUploadFile(file);
-  if (problem) throw new UploadValidationError(problem);
+  await addManyToQueue([file], bingoTaskId);
+}
 
-  const item: QueueItem = {
+export async function addManyToQueue(
+  files: File[],
+  bingoTaskId?: string,
+): Promise<void> {
+  if (files.length === 0) return;
+
+  for (const file of files) {
+    const problem = validateUploadFile(file);
+    if (problem) throw new UploadValidationError(problem);
+  }
+
+  const createdAt = Date.now();
+  const added: QueueItem[] = files.map((file, index) => ({
     id: randomId(),
     file,
     path: createUploadPath(file, bingoTaskId),
     bingoTaskId,
-    createdAt: Date.now(),
+    createdAt: createdAt + index,
     attempts: 0,
     status: "pending",
-  };
-  items = [...items, item];
+  }));
+  items = [...items, ...added];
   emit();
-  await persistItem(item);
+  await Promise.all(added.map(persistItem));
   void flush();
 }
 
