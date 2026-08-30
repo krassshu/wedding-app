@@ -9,10 +9,32 @@ type ArchiveOptions = {
   logPrefix: string;
 };
 
-function waitUntilConsumed(stream: Readable): Promise<void> {
+class ArchiveCancelledError extends Error {}
+
+function waitUntilConsumed(stream: Readable, archive: archiver.Archiver): Promise<void> {
   return new Promise((resolve, reject) => {
-    stream.once("end", resolve);
-    stream.once("error", reject);
+    const cleanup = () => {
+      stream.off("end", onEnd);
+      stream.off("error", onError);
+      archive.off("close", onArchiveClose);
+    };
+    const onEnd = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const onArchiveClose = () => {
+      cleanup();
+      stream.destroy();
+      reject(new ArchiveCancelledError());
+    };
+
+    stream.once("end", onEnd);
+    stream.once("error", onError);
+    archive.once("close", onArchiveClose);
   });
 }
 
@@ -21,7 +43,8 @@ function waitUntilConsumed(stream: Readable): Promise<void> {
  * Dzięki temu nawet duża galeria nie otwiera setek połączeń i nie trafia do RAM-u.
  */
 export function streamPhotoZip(paths: string[], options: ArchiveOptions): Response {
-  const archive = archiver("zip", { store: true });
+  // ZIP64 jest konieczny, gdy galeria przekroczy 4 GB.
+  const archive = archiver("zip", { store: true, forceZip64: true });
 
   archive.on("error", (error) => {
     console.error(`${options.logPrefix} błąd archiwum`, error);
@@ -34,6 +57,7 @@ export function streamPhotoZip(paths: string[], options: ArchiveOptions): Respon
     const failed: string[] = [];
 
     for (const path of paths) {
+      if (archive.destroyed) break;
       try {
         const response = await fetch(internalObjectUrl(path), { cache: "no-store" });
         if (!response.ok || !response.body) {
@@ -42,15 +66,18 @@ export function streamPhotoZip(paths: string[], options: ArchiveOptions): Respon
         }
 
         const stream = Readable.fromWeb(response.body as never);
-        const consumed = waitUntilConsumed(stream);
+        const consumed = waitUntilConsumed(stream, archive);
         archive.append(stream, { name: path.replace(/^gallery\//, "") });
         await consumed;
       } catch (error) {
+        if (archive.destroyed || error instanceof ArchiveCancelledError) break;
         failed.push(
           `${path} — ${error instanceof Error ? error.message : "błąd pobierania"}`,
         );
       }
     }
+
+    if (archive.destroyed) return;
 
     if (failed.length > 0) {
       console.error(`${options.logPrefix} nie pobrano plików:`, failed);
