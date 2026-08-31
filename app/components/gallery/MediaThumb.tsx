@@ -13,7 +13,7 @@ type MediaThumbProps = {
   showCaption?: boolean;
 };
 
-type Source = "thumb" | "original" | "broken";
+type Source = "thumb" | "broken";
 
 type VisibilityListener = (visible: boolean) => void;
 
@@ -33,9 +33,9 @@ function observeVisibility(element: Element, listener: VisibilityListener): () =
           visibilityListeners.get(entry.target)?.(entry.isIntersecting);
         }
       },
-      // Kilka rzędów zapasu zapobiega miganiu podczas szybkiego scrollowania,
-      // a odległe zdjęcia i filmy nie zajmują pamięci telefonu.
-      { rootMargin: "1000px 0px" },
+      // Niewielki zapas zapobiega miganiu, ale ogranicza liczbę obrazów
+      // dekodowanych jednocześnie przez przeglądarkę telefonu.
+      { rootMargin: "400px 0px" },
     );
   }
 
@@ -82,13 +82,17 @@ export default function MediaThumb({
   ) : null;
 
   function handleImageError() {
-    setSource((current) => (current === "thumb" ? "original" : "broken"));
+    // W siatce nigdy nie pobieramy wielomegabajtowego oryginału. Gdy usługa
+    // miniaturek odrzuci bardzo duże zdjęcie, lekki placeholder chroni telefon
+    // przed skokiem pamięci. Oryginał pozostaje dostępny po otwarciu pliku.
+    setSource("broken");
+    setLoaded(true);
   }
 
   return (
     <div
       ref={containerRef}
-      className={`absolute inset-0 ${nearViewport && !loaded ? "shimmer" : ""}`}
+      className={`absolute inset-0 ${nearViewport && photo.kind === "image" && !loaded ? "shimmer" : ""}`}
     >
       {!nearViewport ? null : source === "broken" ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/5 px-1 text-center text-muted">
@@ -97,24 +101,20 @@ export default function MediaThumb({
         </div>
       ) : photo.kind === "video" ? (
         <>
-          <video
-            src={`${photo.url}#t=0.1`}
-            muted
-            playsInline
-            preload="metadata"
-            onLoadedData={() => setLoaded(true)}
-            onError={() => setLoaded(true)}
-            className="media-fade h-full w-full object-cover"
-            data-loaded={loaded}
-          />
-          <span className="pointer-events-none absolute bottom-1.5 right-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white">
-            <Play size={12} fill="currentColor" />
+          {/* Nie tworzymy odtwarzacza w siatce. Sam preload metadanych uruchamiał
+              wiele dekoderów naraz i potrafił zamknąć galerię na telefonie. */}
+          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-neutral-700 to-neutral-950 text-white">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20 shadow-sm backdrop-blur-sm">
+              <Play size={22} fill="currentColor" className="translate-x-px" />
+            </span>
+          </div>
+          <span className="pointer-events-none absolute bottom-1.5 right-1.5 z-10 rounded-full bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
+            Film
           </span>
         </>
       ) : (
         <Image
-          key={source}
-          src={source === "thumb" ? photo.thumbUrl : photo.url}
+          src={photo.thumbUrl}
           alt="Zdjęcie z wesela"
           fill
           unoptimized
