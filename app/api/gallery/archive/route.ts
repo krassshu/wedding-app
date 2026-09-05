@@ -1,6 +1,10 @@
 import { adminConfigured, adminListArchiveFiles } from "@/lib/adminSupabase";
+import {
+  galleryArchiveResponse,
+  galleryArchiveStatus,
+  prepareGalleryArchive,
+} from "@/lib/galleryArchiveCache";
 import { hasUploadAccess } from "@/lib/uploadAuth";
-import { streamPhotoZip } from "@/lib/photoArchive";
 import { clientIp, takeRateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
@@ -13,6 +17,24 @@ function textResponse(message: string, status: number, retryAfter?: number): Res
 }
 
 export async function GET(req: Request) {
+  if (!(await hasUploadAccess())) {
+    return textResponse("Podaj kod weselny, aby pobrać archiwum.", 401);
+  }
+  const id = new URL(req.url).searchParams.get("id") ?? "";
+  const download = new URL(req.url).searchParams.get("download") === "1";
+
+  if (download) {
+    const response = await galleryArchiveResponse(id, req);
+    return response ?? textResponse("Archiwum wygasło. Przygotuj je ponownie.", 404);
+  }
+
+  const state = await galleryArchiveStatus(id);
+  return state
+    ? Response.json(state, { headers: { "Cache-Control": "private, no-store" } })
+    : textResponse("Archiwum nie jest przygotowywane.", 404);
+}
+
+export async function POST(req: Request) {
   if (!(await hasUploadAccess())) {
     return textResponse("Podaj kod weselny, aby pobrać archiwum.", 401);
   }
@@ -39,8 +61,7 @@ export async function GET(req: Request) {
 
   if (files.length === 0) return textResponse("Galeria jest jeszcze pusta.", 404);
 
-  return streamPhotoZip(files.map((file) => file.path), {
-    filename: "wesele-ania-oskar.zip",
-    logPrefix: "[gallery/archive]",
+  return Response.json(await prepareGalleryArchive(files), {
+    headers: { "Cache-Control": "private, no-store" },
   });
 }
